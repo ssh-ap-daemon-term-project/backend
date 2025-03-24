@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import auth, demo_protected
+from .routes import auth, demo_protected, admin
 
 app = FastAPI()
 
@@ -16,6 +16,7 @@ app.add_middleware(
 # Include API routes
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(demo_protected.router, prefix="/api/protected", tags=["Protected"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 @app.get("/")
 def root():

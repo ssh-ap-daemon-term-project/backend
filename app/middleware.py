@@ -24,18 +24,24 @@ def is_auth(request: Request):
 
 def is_customer(request: Request):
     user = is_auth(request)
-    if user.role != "customer":
+    if user.userType != "customer":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized as customer")
     return user
 
 def is_hotel(request: Request):
     user = is_auth(request)
-    if user.role != "hotel":
+    if user.userType != "hotel":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized as hotel")
     return user
 
 def is_driver(request: Request):
     user = is_auth(request)
-    if user.role != "driver":
+    if user.userType != "driver":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized as driver")
+    return user
+
+def is_admin(request: Request):
+    user = is_auth(request)
+    if user.userType != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized as admin")
     return user
