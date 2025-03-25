@@ -1,12 +1,155 @@
 from .database import Base
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Date, Enum, TIMESTAMP, func, Text, Float, Boolean
+from sqlalchemy.orm import relationship
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, nullable=False, unique=True, index=True)
-    email = Column(String, nullable=False, unique=True, index=True)
-    hashed_password = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
-    userType = Column(String, nullable=False, default="customer")  # userType: 'customer', 'hotel', 'driver', 'admin'
+    username = Column(String(50), nullable=False, unique=True, index=True)
+    email = Column(String(100), nullable=False, unique=True, index=True)
+    hashedPassword = Column(Text, nullable=False)  # Allow long hashes
+    phone = Column(String(15), nullable=False, unique=True)  
+    userType = Column(Enum("customer", "hotel", "driver", "admin", name="userTypes"), nullable=False, default="customer")
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+    updatedAt = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    customer = relationship("Customer", uselist=False, back_populates="user")
+    hotel = relationship("Hotel", uselist=False, back_populates="user")
+    driver = relationship("Driver", uselist=False, back_populates="user")
+    admin = relationship("Admin", uselist=False, back_populates="user")
+
+class Customer(Base):
+    __tablename__ = "customers"
+
+    id = Column(Integer, primary_key=True)
+    userId = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
+    dob = Column(Date)
+    gender = Column(Enum("male", "female", "other", name="gender"))
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", back_populates="customer")
+    bookings = relationship("RoomBooking", back_populates="customer")
+    rideBookings = relationship("RideBooking", back_populates="customer")
+    itineraries = relationship("Itinerary", back_populates="customer")
+
+class Hotel(Base):
+    __tablename__ = "hotels"
+
+    id = Column(Integer, primary_key=True)
+    userId = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
+    city = Column(String(100), nullable=False)
+    address = Column(String, nullable=False)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    rating = Column(Float, nullable=False)
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", back_populates="hotel")
+    rooms = relationship("Room", back_populates="hotel")
+    reviews = relationship("HotelReview", back_populates="hotel")
+
+class Room(Base):
+    __tablename__ = "rooms"
+
+    id = Column(Integer, primary_key=True)
+    type = Column(Enum("single", "double", "suite", name="room_types"), nullable=False)
+    roomCapacity = Column(Integer, nullable=False)
+    totalNumber = Column(Integer, nullable=False)
+    price = Column(Float, nullable=False)
+    hotelId = Column(Integer, ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+
+    hotel = relationship("Hotel", back_populates="rooms")
+    bookings = relationship("RoomBooking", back_populates="room", cascade="all, delete-orphan")
+
+class RoomBooking(Base):
+    __tablename__ = "roomBookings"
+
+    id = Column(Integer, primary_key=True)
+    customerId = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    roomId = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    startDate = Column(DateTime, nullable=False)
+    endDate = Column(DateTime, nullable=False)
+    totalPrice = Column(Float, nullable=False)
+    bookingStatus = Column(Enum("pending", "confirmed", "cancelled", name="bookingStatus"), default="pending")
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    customer = relationship("Customer", back_populates="bookings")
+    room = relationship("Room", back_populates="bookings")
+
+class Driver(Base):
+    __tablename__ = "drivers"
+
+    id = Column(Integer, primary_key=True)
+    userId = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
+    carModel = Column(String(50), nullable=False)
+    carNumber = Column(String(20), nullable=False)
+    carType = Column(Enum("sedan", "suv", "hatchback", "luxury", name="carTypes"), nullable=False)
+    seatingCapacity = Column(Integer, nullable=False)
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", back_populates="driver")
+    rideBookings = relationship("RideBooking", back_populates="driver", cascade="all, delete-orphan")
+
+class RideBooking(Base):
+    __tablename__ = "rideBookings"
+
+    id = Column(Integer, primary_key=True)
+    customerId = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    driverId = Column(Integer, ForeignKey("drivers.id", ondelete="CASCADE"), nullable=False)
+    pickupLocation = Column(String(100), nullable=False)
+    dropLocation = Column(String(100), nullable=False)
+    price = Column(Float, nullable=False)
+    status = Column(Enum("pending", "confirmed", "completed", "cancelled", name="ride_status"), default="pending")
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    customer = relationship("Customer", back_populates="rideBookings")
+    driver = relationship("Driver", back_populates="rideBookings")
+
+class Admin(Base):
+    __tablename__ = "admins"
+
+    id = Column(Integer, primary_key=True)
+    userId = Column(Integer, ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"), unique=True, nullable=False)
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", back_populates="admin")
+
+class Itinerary(Base):
+    __tablename__ = "itineraries"
+
+    id = Column(Integer, primary_key=True)
+    customerId = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(100), nullable=False)
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    customer = relationship("Customer", back_populates="itineraries")
+    items = relationship("ItineraryItem", back_populates="itinerary", cascade="all, delete-orphan")
+
+class ItineraryItem(Base):
+    __tablename__ = "itinerary_items"
+
+    id = Column(Integer, primary_key=True)
+    itinerary_id = Column(Integer, ForeignKey("itineraries.id", ondelete="CASCADE"), nullable=False)
+    location = Column(String(100), nullable=False)
+    description = Column(String)
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    itinerary = relationship("Itinerary", back_populates="items")
+
+class HotelReview(Base):
+    __tablename__ = "hotel_reviews"
+
+    id = Column(Integer, primary_key=True)
+    customerId = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    hotelId = Column(Integer, ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    rating = Column(Float, nullable=False)
+    description = Column(String, nullable=False)
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    customer = relationship("Customer")
+    hotel = relationship("Hotel", back_populates="reviews")
