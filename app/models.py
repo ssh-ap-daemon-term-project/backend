@@ -1,5 +1,5 @@
 from .database import Base
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Date, Enum, TIMESTAMP, func, Text, Float, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Date, Enum, TIMESTAMP, func, Text, Float, Boolean, ARRAY
 from sqlalchemy.orm import relationship
 
 class User(Base):
@@ -30,7 +30,7 @@ class Customer(Base):
     gender = Column(Enum("male", "female", "other", name="gender"))
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    user = relationship("User", back_populates="customer")
+    user = relationship("User", uselist=False, back_populates="customer")
     bookings = relationship("RoomBooking", back_populates="customer")
     rideBookings = relationship("RideBooking", back_populates="customer")
     itineraries = relationship("Itinerary", back_populates="customer")
@@ -48,7 +48,7 @@ class Hotel(Base):
     rating = Column(Float, nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    user = relationship("User", back_populates="hotel")
+    user = relationship("User", uselist=False, back_populates="hotel")
     rooms = relationship("Room", back_populates="hotel")
     reviews = relationship("HotelReview", back_populates="hotel")
 
@@ -56,29 +56,30 @@ class Room(Base):
     __tablename__ = "rooms"
 
     id = Column(Integer, primary_key=True)
-    type = Column(Enum("single", "double", "suite", name="room_types"), nullable=False)
+    type = Column(Enum("basic", "luxury", "suite", name="room_types"), nullable=False)
     roomCapacity = Column(Integer, nullable=False)
     totalNumber = Column(Integer, nullable=False)
-    price = Column(Float, nullable=False)
-    hotelId = Column(Integer, ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    availableNumber = Column(ARRAY(Integer), nullable=False)
+    bookedNumber = Column(ARRAY(Integer), nullable=False)
+    price = Column(ARRAY(Float), nullable=False)
+    hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
 
-    hotel = relationship("Hotel", back_populates="rooms")
-    bookings = relationship("RoomBooking", back_populates="room", cascade="all, delete-orphan")
+    hotel = relationship("Hotel", uselist=False, back_populates="rooms")
+    bookings = relationship("RoomBooking", back_populates="room")
 
 class RoomBooking(Base):
     __tablename__ = "roomBookings"
 
     id = Column(Integer, primary_key=True)
-    customerId = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
-    roomId = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
+    roomId = Column(Integer, ForeignKey("rooms.id"), nullable=False)
     startDate = Column(DateTime, nullable=False)
     endDate = Column(DateTime, nullable=False)
-    totalPrice = Column(Float, nullable=False)
-    bookingStatus = Column(Enum("pending", "confirmed", "cancelled", name="bookingStatus"), default="pending")
+    numberOfPersons = Column(Integer, nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    customer = relationship("Customer", back_populates="bookings")
-    room = relationship("Room", back_populates="bookings")
+    customer = relationship("Customer", uselist=False, back_populates="bookings")
+    room = relationship("Room", uselist=False, back_populates="bookings")
 
 class Driver(Base):
     __tablename__ = "drivers"
@@ -90,19 +91,24 @@ class Driver(Base):
     carNumber = Column(String(20), nullable=False)
     carType = Column(Enum("sedan", "suv", "hatchback", "luxury", name="carTypes"), nullable=False)
     seatingCapacity = Column(Integer, nullable=False)
+    address = Column(String(200), nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    user = relationship("User", back_populates="driver")
-    rideBookings = relationship("RideBooking", back_populates="driver", cascade="all, delete-orphan")
+    user = relationship("User", uselist=False, back_populates="driver")
+    rideBookings = relationship("RideBooking", back_populates="driver")
 
 class RideBooking(Base):
     __tablename__ = "rideBookings"
 
     id = Column(Integer, primary_key=True)
-    customerId = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
-    driverId = Column(Integer, ForeignKey("drivers.id", ondelete="CASCADE"), nullable=False)
+    customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
+    driverId = Column(Integer, ForeignKey("drivers.id"), nullable=False)
+    
     pickupLocation = Column(String(100), nullable=False)
     dropLocation = Column(String(100), nullable=False)
+    pickupTime = Column(DateTime, nullable=False)
+    dropTime = Column(DateTime, nullable=False)
+    numberOfPersons = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
     status = Column(Enum("pending", "confirmed", "completed", "cancelled", name="ride_status"), default="pending")
     createdAt = Column(TIMESTAMP, server_default=func.now())
@@ -123,23 +129,25 @@ class Itinerary(Base):
     __tablename__ = "itineraries"
 
     id = Column(Integer, primary_key=True)
-    customerId = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
     name = Column(String(100), nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
     customer = relationship("Customer", back_populates="itineraries")
-    items = relationship("ItineraryItem", back_populates="itinerary", cascade="all, delete-orphan")
+    scheduleItems = relationship("ScheduleItem", back_populates="itinerary")
 
-class ItineraryItem(Base):
-    __tablename__ = "itinerary_items"
+class ScheduleItem(Base):
+    __tablename__ = "schedule_items"
 
     id = Column(Integer, primary_key=True)
-    itinerary_id = Column(Integer, ForeignKey("itineraries.id", ondelete="CASCADE"), nullable=False)
+    itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
+    startTime = Column(DateTime, nullable=False)
+    endTime = Column(DateTime, nullable=False)
     location = Column(String(100), nullable=False)
     description = Column(String)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    itinerary = relationship("Itinerary", back_populates="items")
+    itinerary = relationship("Itinerary", back_populates="scheduleItems")
 
 class HotelReview(Base):
     __tablename__ = "hotel_reviews"
