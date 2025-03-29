@@ -34,6 +34,7 @@ class Customer(Base):
     bookings = relationship("RoomBooking", back_populates="customer")
     rideBookings = relationship("RideBooking", back_populates="customer")
     itineraries = relationship("Itinerary", back_populates="customer")
+    reviews = relationship("HotelReview", back_populates="customer")
 
 class Hotel(Base):
     __tablename__ = "hotels"
@@ -103,7 +104,7 @@ class RideBooking(Base):
     id = Column(Integer, primary_key=True)
     customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
     driverId = Column(Integer, ForeignKey("drivers.id"), nullable=False)
-    
+    itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)  # Itinerary
     pickupLocation = Column(String(100), nullable=False)
     dropLocation = Column(String(100), nullable=False)
     pickupTime = Column(DateTime, nullable=False)
@@ -113,17 +114,19 @@ class RideBooking(Base):
     status = Column(Enum("pending", "confirmed", "completed", "cancelled", name="ride_status"), default="pending")
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    customer = relationship("Customer", back_populates="rideBookings")
-    driver = relationship("Driver", back_populates="rideBookings")
+    customer = relationship("Customer", uselist=False, back_populates="rideBookings")
+    driver = relationship("Driver", uselist=False, back_populates="rideBookings")
+    itinerary = relationship("Itinerary", uselist=False, back_populates="rideBookings")
 
 class Admin(Base):
     __tablename__ = "admins"
 
     id = Column(Integer, primary_key=True)
-    userId = Column(Integer, ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"), unique=True, nullable=False)
+    userId = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    user = relationship("User", back_populates="admin")
+    user = relationship("User", uselist=False, back_populates="admin")
 
 class Itinerary(Base):
     __tablename__ = "itineraries"
@@ -131,10 +134,13 @@ class Itinerary(Base):
     id = Column(Integer, primary_key=True)
     customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
     name = Column(String(100), nullable=False)
+    numberOfPersons = Column(Integer, nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    customer = relationship("Customer", back_populates="itineraries")
+    customer = relationship("Customer", uselist=False, back_populates="itineraries")
     scheduleItems = relationship("ScheduleItem", back_populates="itinerary")
+    hotelItems = relationship("HotelItem", back_populates="itinerary")
+    rideBookings = relationship("RideBooking", uselist=False, back_populates="itinerary")
 
 class ScheduleItem(Base):
     __tablename__ = "schedule_items"
@@ -147,17 +153,30 @@ class ScheduleItem(Base):
     description = Column(String)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    itinerary = relationship("Itinerary", back_populates="scheduleItems")
+    itinerary = relationship("Itinerary", uselist=False, back_populates="scheduleItems")
+
+class HotelItem(Base):
+    __tablename__ = "hotel_items"
+
+    id = Column(Integer, primary_key=True)
+    itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
+    hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
+    startDate = Column(DateTime, nullable=False)
+    endDate = Column(DateTime, nullable=False)
+    createdAt = Column(TIMESTAMP, server_default=func.now())
+
+    itinerary = relationship("Itinerary", back_populates="hotelItems")
+    hotel = relationship("Hotel", back_populates="hotelItems")
 
 class HotelReview(Base):
     __tablename__ = "hotel_reviews"
 
     id = Column(Integer, primary_key=True)
-    customerId = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
-    hotelId = Column(Integer, ForeignKey("hotels.id", ondelete="CASCADE"), nullable=False)
+    customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
+    hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
     rating = Column(Float, nullable=False)
     description = Column(String, nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    customer = relationship("Customer")
+    customer = relationship("Customer", uselist=False, back_populates="reviews")
     hotel = relationship("Hotel", back_populates="reviews")
