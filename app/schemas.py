@@ -1,4 +1,5 @@
 from pydantic import BaseModel, EmailStr
+from typing import Optional, List
 
 class UserCreate(BaseModel):
     username: str
@@ -21,6 +22,28 @@ class UserLogin(BaseModel):
     username: str
     password: str
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
+# Hotel Schemas
+class HotelBase(BaseModel):
+    name: str
+    address: str
+    city: str
+    email: EmailStr
+    phone: str
+    description: Optional[str] = None
+
+class HotelCreate(HotelBase):
+    pass
+
+class HotelUpdate(BaseModel):
+    name: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    description: Optional[str] = None
+
+class HotelResponse(HotelBase):
+    id: int
+    
+    class Config:
+        orm_mode = True
