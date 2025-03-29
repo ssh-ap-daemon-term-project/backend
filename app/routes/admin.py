@@ -33,16 +33,4 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Customer deleted"}
 
-@router.get("/dashboard")
-def admin_dashboard(db: Session = Depends(get_db)):
-    """Admin dashboard statistics"""
-    # Count of different user types
-    stats = {
-        "customers": db.query(User).filter(User.userType == "customer").count(),
-        "hotels": db.query(User).filter(User.userType == "hotel").count(),
-        "drivers": db.query(User).filter(User.userType == "driver").count(),
-        "admins": db.query(User).filter(User.userType == "admin"),
-        "room_bookings": db.query(RoomBooking).count(),
-    }
-    return stats
 
