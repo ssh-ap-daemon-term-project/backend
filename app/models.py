@@ -52,6 +52,7 @@ class Hotel(Base):
     user = relationship("User", uselist=False, back_populates="hotel")
     rooms = relationship("Room", back_populates="hotel")
     reviews = relationship("HotelReview", back_populates="hotel")
+    hotelItems = relationship("HotelItem", back_populates="hotel")
 
 class Room(Base):
     __tablename__ = "rooms"
