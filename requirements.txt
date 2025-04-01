@@ -7,4 +7,7 @@ python-jose
 python-multipart
 email_validator
 psycopg2-binary
-# (//TODO: fastapi-csrf-protect after integrating CSRF protection)
+pydantic[email]
+psycopg2
+openai
+
