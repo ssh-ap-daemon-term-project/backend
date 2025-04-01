@@ -93,3 +93,9 @@ def signin(user: UserLogin, response: Response, db: Session = Depends(get_db)):
     cookie_max_age = int(timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES).total_seconds())
     response.set_cookie(key="access_token", value=token, httponly=True, max_age=cookie_max_age, samesite="None", secure=True, path="/")       # TODO: will turn to lax if possible
     return db_user
+
+@router.get("/signout")
+def signout(response: Response):
+    # Clear the JWT cookie
+    response.delete_cookie(key="access_token", path="/")
+    return {"message": "Successfully logged out"}
