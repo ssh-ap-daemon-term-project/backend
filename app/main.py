@@ -1,6 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import auth, demo_protected, admin , hotel
+from .routes import auth, demo_protected, admin , hotel, llmsql_routes
+# from .llmsql import LLMSQL
+# from .config import settings
+from .database import engine
+from .import models
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
@@ -12,12 +18,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # Include API routes
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(demo_protected.router, prefix="/api/protected", tags=["Protected"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(hotel.router, prefix="/api/hotel", tags=["Hotel"])
+app.include_router(llmsql_routes.router)
 
 @app.get("/")
 def root():
