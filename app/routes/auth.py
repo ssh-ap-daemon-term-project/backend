@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from ..schemas import UserCreate, UserResponse, UserLogin
-from ..models import User
+from ..models import User, Customer, Hotel, Driver, Admin
 from ..database import SessionLocal
 from ..security import hash_password, verify_password, create_access_token
 from ..config import ACCESS_TOKEN_EXPIRE_MINUTES
@@ -21,17 +21,72 @@ def signup(user: UserCreate, response: Response, db: Session = Depends(get_db)):
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
-    hashed = hash_password(user.password)
-    new_user = User(username=user.username, email=user.email, hashed_password=hashed, phone=user.phone, userType=user.userType)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
+    
+    try:
+        hashed = hash_password(user.password)
+        new_user = User(
+            username=user.username,
+            email=user.email,
+            hashedPassword=hashed,
+            phone=user.phone,
+            userType=user.userType,
+            name=user.name,
+            address=user.address
+        )
+        db.add(new_user)
+        db.flush()  # Flush to generate new_user.id without committing
+        
+        # Create corresponding user type entry
+        if user.userType == "customer":
+            if user.dob is None:
+                raise HTTPException(status_code=400, detail="Date of birth is required")
+            if user.gender is None:
+                raise HTTPException(status_code=400, detail="Gender is required")
+            customer = Customer(userId=new_user.id, dob=user.dob, gender=user.gender)
+            db.add(customer)
+    
+        elif user.userType == "hotel":
+            if user.city is None:
+                raise HTTPException(status_code=400, detail="City is required")
+            if user.latitude is None:
+                raise HTTPException(status_code=400, detail="Latitude is required")
+            if user.longitude is None:
+                raise HTTPException(status_code=400, detail="Longitude is required")
+            hotel = Hotel(userId=new_user.id, city=user.city, latitude=user.latitude, longitude=user.longitude, rating=0.0)
+            db.add(hotel)
+    
+        elif user.userType == "driver":
+            if user.carModel is None:
+                raise HTTPException(status_code=400, detail="Car model is required")
+            if user.carNumber is None:
+                raise HTTPException(status_code=400, detail="Car number is required")
+            if user.carType is None:
+                raise HTTPException(status_code=400, detail="Car type is required")
+            if user.seatingCapacity is None:
+                raise HTTPException(status_code=400, detail="Seating capacity is required")
+            driver = Driver(
+                userId=new_user.id,
+                carModel=user.carModel,
+                carNumber=user.carNumber,
+                carType=user.carType,
+                seatingCapacity=user.seatingCapacity
+            )
+            db.add(driver)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid user type")
+    
+        db.commit()  # Commit once all operations succeed
+        db.refresh(new_user)
+        return new_user
+        
+    except Exception as e:
+        db.rollback()  # Rollback in case of any error
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/signin", response_model=UserResponse)
 def signin(user: UserLogin, response: Response, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.username == user.username).first()
-    if not db_user or not verify_password(user.password, db_user.hashed_password):
+    if not db_user or not verify_password(user.password, db_user.hashedPassword):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token(data={"sub": str(db_user.id)}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     # Set the JWT as an HTTP-only cookie

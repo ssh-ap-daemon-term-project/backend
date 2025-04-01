@@ -10,6 +10,8 @@ class User(Base):
     email = Column(String(100), nullable=False, unique=True, index=True)
     hashedPassword = Column(Text, nullable=False)  # Allow long hashes
     phone = Column(String(15), nullable=False, unique=True)  
+    name = Column(String(100), nullable=False)
+    address = Column(String(200), nullable=False)
     userType = Column(Enum("customer", "hotel", "driver", "admin", name="userTypes"), nullable=False, default="customer")
     createdAt = Column(TIMESTAMP, server_default=func.now())
     updatedAt = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
@@ -25,7 +27,6 @@ class Customer(Base):
 
     id = Column(Integer, primary_key=True)
     userId = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    name = Column(String(100), nullable=False)
     dob = Column(Date)
     gender = Column(Enum("male", "female", "other", name="gender"))
     createdAt = Column(TIMESTAMP, server_default=func.now())
@@ -41,9 +42,7 @@ class Hotel(Base):
 
     id = Column(Integer, primary_key=True)
     userId = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    name = Column(String(100), nullable=False)
     city = Column(String(100), nullable=False)
-    address = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     rating = Column(Float, nullable=False)
@@ -88,12 +87,10 @@ class Driver(Base):
 
     id = Column(Integer, primary_key=True)
     userId = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    name = Column(String(100), nullable=False)
     carModel = Column(String(50), nullable=False)
     carNumber = Column(String(20), nullable=False)
     carType = Column(Enum("sedan", "suv", "hatchback", "luxury", name="carTypes"), nullable=False)
     seatingCapacity = Column(Integer, nullable=False)
-    address = Column(String(200), nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
     user = relationship("User", uselist=False, back_populates="driver")
@@ -124,7 +121,6 @@ class Admin(Base):
 
     id = Column(Integer, primary_key=True)
     userId = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    name = Column(String(100), nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
     user = relationship("User", uselist=False, back_populates="admin")
