@@ -51,7 +51,7 @@ class Hotel(Base):
     user = relationship("User", uselist=False, back_populates="hotel")
     rooms = relationship("Room", back_populates="hotel")
     reviews = relationship("HotelReview", back_populates="hotel")
-    hotelItems = relationship("HotelItem", back_populates="hotel")
+    # hotelItems = relationship("HotelItem", back_populates="hotel")
 
 class Room(Base):
     __tablename__ = "rooms"
@@ -67,6 +67,7 @@ class Room(Base):
 
     hotel = relationship("Hotel", uselist=False, back_populates="rooms")
     bookings = relationship("RoomBooking", back_populates="room")
+    roomItems = relationship("RoomItem", back_populates="room")
 
 class RoomBooking(Base):
     __tablename__ = "roomBookings"
@@ -136,7 +137,8 @@ class Itinerary(Base):
 
     customer = relationship("Customer", uselist=False, back_populates="itineraries")
     scheduleItems = relationship("ScheduleItem", back_populates="itinerary")
-    hotelItems = relationship("HotelItem", back_populates="itinerary")
+    # hotelItems = relationship("HotelItem", back_populates="itinerary")
+    roomItems = relationship("RoomItem", back_populates="itinerary")
     rideBookings = relationship("RideBooking", uselist=False, back_populates="itinerary")
 
 class ScheduleItem(Base):
@@ -152,18 +154,31 @@ class ScheduleItem(Base):
 
     itinerary = relationship("Itinerary", uselist=False, back_populates="scheduleItems")
 
-class HotelItem(Base):
-    __tablename__ = "hotel_items"
+# class HotelItem(Base):
+#     __tablename__ = "hotel_items"
+
+#     id = Column(Integer, primary_key=True)
+#     itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
+#     hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
+#     startDate = Column(DateTime, nullable=False)
+#     endDate = Column(DateTime, nullable=False)
+#     createdAt = Column(TIMESTAMP, server_default=func.now())
+
+#     itinerary = relationship("Itinerary", back_populates="hotelItems")
+#     hotel = relationship("Hotel", back_populates="hotelItems")
+
+class RoomItem(Base):
+    __tablename__ = "room_items"
 
     id = Column(Integer, primary_key=True)
     itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
-    hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
+    roomId = Column(Integer, ForeignKey("rooms.id"), nullable=False)
     startDate = Column(DateTime, nullable=False)
     endDate = Column(DateTime, nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
-    itinerary = relationship("Itinerary", back_populates="hotelItems")
-    hotel = relationship("Hotel", back_populates="hotelItems")
+    itinerary = relationship("Itinerary", back_populates="roomItems")
+    room = relationship("Room", uselist=False, back_populates="roomItems")
 
 class HotelReview(Base):
     __tablename__ = "hotel_reviews"
