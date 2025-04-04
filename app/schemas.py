@@ -197,3 +197,34 @@ class RoomListResponse(BaseModel):
 # Add this schema
 class RoomCountUpdate(BaseModel):
     totalNumber: int
+
+class CustomerBase(BaseModel):
+    name: str
+    address: str
+    email: EmailStr
+    phone: str
+    dob: date
+    gender: str
+
+class CustomerCreate(CustomerBase):
+    username: str
+    password: str
+
+class CustomerUpdate(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+    name: Optional[str] = None
+    address: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    dob: Optional[date] = None
+    gender: Optional[str] = None
+
+class CustomerResponse(CustomerBase):
+    id: int
+    userId: int
+    username: str
+    createdAt: datetime
+    
+    class Config:
+        orm_mode = True

@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from ..models import User, RoomBooking, Hotel, Room
+from ..models import User, RoomBooking, Hotel, Room, RoomItem, HotelReview, Customer, RideBooking, Itinerary, ScheduleItem
+from sqlalchemy import func
+from datetime import datetime
 from ..database import SessionLocal
 from ..middleware import is_admin
 from ..schemas import HotelCreate, HotelUpdate, HotelResponse  # You'll need to create these schemas
@@ -9,7 +11,7 @@ from ..security import hash_password
 
 # Create router with prefix and tags
 router = APIRouter(
-    # dependencies=[Depends(is_admin)]
+    dependencies=[Depends(is_admin)]
 )
 
 def get_db():
@@ -19,24 +21,342 @@ def get_db():
     finally:
         db.close()
 
-# Now your routes will automatically have /admin prefix
-@router.get("/customers")
+# Add these imports if not already present
+from datetime import date
+from ..schemas import CustomerCreate, CustomerUpdate, CustomerResponse
+
+# Customer Management APIs
+@router.get("/customers", response_model=List[CustomerResponse])
 def get_all_customers(db: Session = Depends(get_db)):
-    """Get all customers"""
-    customers = db.query(User).filter(User.userType == "customer").all()
-    return customers
+    """Get all customers with their detailed information"""
+    customers_with_details = []
+    
+    # Get all customers
+    users = db.query(User).filter(User.userType == "customer").all()
+    
+    for user in users:
+        # Get associated customer details
+        customer = db.query(Customer).filter(Customer.userId == user.id).first()
+        
+        if not customer:
+            continue  # Skip users without customer data
+        
+        # Create a combined response with fields from both models
+        customer_data = {
+            "id": customer.id,
+            "userId": user.id,
+            "username": user.username,
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone,
+            "address": user.address,
+            "dob": customer.dob,
+            "gender": customer.gender,
+            "createdAt": user.createdAt
+        }
+        
+        customers_with_details.append(customer_data)
+    
+    return customers_with_details
 
-@router.delete("/customer/{customer_id}")
-def delete_customer(customer_id: int, db: Session = Depends(get_db)):
-    """Delete a customer"""
-    customer = db.query(User).filter(User.id == customer_id).first()
+@router.get("/customers/{customer_id}", response_model=CustomerResponse)
+def get_customer_by_id(customer_id: int, db: Session = Depends(get_db)):
+    """Get a specific customer by ID"""
+    # Get customer details
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
-        return {"error": "Customer not found"}
-    db.delete(customer)
-    db.commit()
-    return {"message": "Customer deleted"}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+        
+    # Get user details
+    user = db.query(User).filter(User.id == customer.userId).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Combine the information
+    customer_data = {
+        "id": customer.id,
+        "userId": user.id,
+        "username": user.username,
+        "name": user.name,
+        "email": user.email,
+        "phone": user.phone,
+        "address": user.address,
+        "dob": customer.dob,
+        "gender": customer.gender,
+        "createdAt": user.createdAt
+    }
+    
+    return customer_data
 
+@router.post("/customers", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
+def create_customer(customer_data: CustomerCreate, db: Session = Depends(get_db)):
+    """Create a new customer"""
+    # Check if username already exists
+    if db.query(User).filter(User.username == customer_data.username).first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already registered"
+        )
+    
+    # Check if email already exists
+    if db.query(User).filter(User.email == customer_data.email).first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    # Check if phone already exists
+    if db.query(User).filter(User.phone == customer_data.phone).first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Phone number already registered"
+        )
+    
+    try:
+        # Create user
+        hashed_password = hash_password(customer_data.password)
+        new_user = User(
+            username=customer_data.username,
+            email=customer_data.email,
+            hashedPassword=hashed_password,
+            phone=customer_data.phone,
+            name=customer_data.name,
+            address=customer_data.address,
+            userType="customer"
+        )
+        db.add(new_user)
+        db.flush()  # Generate ID without committing
+        
+        # Create customer
+        new_customer = Customer(
+            userId=new_user.id,
+            dob=customer_data.dob,
+            gender=customer_data.gender
+        )
+        db.add(new_customer)
+        db.commit()
+        db.refresh(new_customer)
+        
+        # Return combined data
+        return {
+            "id": new_customer.id,
+            "userId": new_user.id,
+            "username": new_user.username,
+            "name": new_user.name,
+            "email": new_user.email,
+            "phone": new_user.phone,
+            "address": new_user.address,
+            "dob": new_customer.dob,
+            "gender": new_customer.gender,
+            "createdAt": new_user.createdAt
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to create customer: {str(e)}"
+        )
 
+@router.put("/customers/{customer_id}", response_model=CustomerResponse)
+def update_customer(customer_id: int, customer_update: CustomerUpdate, db: Session = Depends(get_db)):
+    """Update an existing customer"""
+    # Find the customer
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+    
+    # Find the associated user
+    user = db.query(User).filter(User.id == customer.userId).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User associated with customer not found"
+        )
+    
+    try:
+        # Update User fields if provided
+        if hasattr(customer_update, "username") and customer_update.username is not None:
+            # Check if username is already taken
+            existing_user = db.query(User).filter(User.username == customer_update.username, User.id != user.id).first()
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username already registered"
+                )
+            user.username = customer_update.username
+            
+        if hasattr(customer_update, "password") and customer_update.password is not None:
+            user.hashedPassword = hash_password(customer_update.password)
+            
+        if hasattr(customer_update, "name") and customer_update.name is not None:
+            user.name = customer_update.name
+            
+        if hasattr(customer_update, "email") and customer_update.email is not None:
+            # Check if email is already taken
+            existing_user = db.query(User).filter(User.email == customer_update.email, User.id != user.id).first()
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already registered"
+                )
+            user.email = customer_update.email
+            
+        if hasattr(customer_update, "phone") and customer_update.phone is not None:
+            # Check if phone is already taken
+            existing_user = db.query(User).filter(User.phone == customer_update.phone, User.id != user.id).first()
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already registered"
+                )
+            user.phone = customer_update.phone
+            
+        if hasattr(customer_update, "address") and customer_update.address is not None:
+            user.address = customer_update.address
+            
+        # Update Customer fields if provided
+        if hasattr(customer_update, "dob") and customer_update.dob is not None:
+            customer.dob = customer_update.dob
+            
+        if hasattr(customer_update, "gender") and customer_update.gender is not None:
+            customer.gender = customer_update.gender
+            
+        # Commit changes
+        db.commit()
+        
+        # Return updated data
+        return {
+            "id": customer.id,
+            "userId": user.id,
+            "username": user.username,
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone,
+            "address": user.address,
+            "dob": customer.dob,
+            "gender": customer.gender,
+            "createdAt": user.createdAt
+        }
+        
+    except HTTPException as http_ex:
+        db.rollback()
+        raise http_ex
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to update customer: {str(e)}"
+        )
+
+@router.delete("/customer/{customer_id}", status_code=status.HTTP_200_OK)
+def delete_customer(customer_id: int, db: Session = Depends(get_db)):
+    """Delete a customer and all associated data"""
+    try:
+        # Find the customer
+        customer = db.query(Customer).filter(Customer.id == customer_id).first()
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Customer not found"
+            )
+        
+        # Find the associated user
+        user = db.query(User).filter(User.id == customer.userId).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User associated with customer not found"
+            )
+
+        # Check for active bookings
+        active_room_bookings = db.query(RoomBooking).filter(
+            RoomBooking.customerId == customer_id,
+            RoomBooking.endDate > func.now()
+        ).count()
+        
+        # Check for active ride bookings if they exist
+        active_ride_bookings = 0
+        if 'RideBooking' in globals() or 'RideBooking' in locals():
+            active_ride_bookings = db.query(RideBooking).filter(
+                RideBooking.customerId == customer_id,
+                RideBooking.pickupTime > func.now()
+            ).count()
+            
+        if active_room_bookings > 0 or active_ride_bookings > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete customer with {active_room_bookings} active room bookings and {active_ride_bookings} active ride bookings"
+            )
+            
+        # Delete related entities in the correct order to maintain referential integrity
+        
+        # 1. Delete hotel reviews
+        if 'HotelReview' in globals() or 'HotelReview' in locals():
+            reviews_deleted = db.query(HotelReview).filter(HotelReview.customerId == customer_id).delete(synchronize_session=False)
+        
+        # 2. Delete room bookings
+        room_bookings_deleted = db.query(RoomBooking).filter(RoomBooking.customerId == customer_id).delete(synchronize_session=False)
+        
+        # 3. Delete ride bookings
+        ride_bookings_deleted = 0
+        if 'RideBooking' in globals() or 'RideBooking' in locals():
+            ride_bookings_deleted = db.query(RideBooking).filter(RideBooking.customerId == customer_id).delete(synchronize_session=False)
+        
+        # 4. Delete itineraries and related items
+        itineraries = db.query(Itinerary).filter(Itinerary.customerId == customer_id).all()
+        
+        for itinerary in itineraries:
+            # Delete schedule items
+            db.query(ScheduleItem).filter(ScheduleItem.itinerary_id == itinerary.id).delete(synchronize_session=False)
+            
+            # Delete room items
+            db.query(RoomItem).filter(RoomItem.itinerary_id == itinerary.id).delete(synchronize_session=False)
+        
+        # Delete the itineraries themselves
+        itineraries_deleted = db.query(Itinerary).filter(Itinerary.customerId == customer_id).delete(synchronize_session=False)
+        
+        # 5. Delete the customer
+        db.delete(customer)
+        
+        # 6. Delete the user
+        db.delete(user)
+        
+        # Commit the transaction
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Customer deleted successfully",
+            "details": {
+                "customer_id": customer_id,
+                "room_bookings_deleted": room_bookings_deleted,
+                "ride_bookings_deleted": ride_bookings_deleted,
+                "itineraries_deleted": itineraries_deleted
+            }
+        }
+        
+    except HTTPException as http_ex:
+        # Re-raise HTTP exceptions
+        raise http_ex
+        
+    except Exception as e:
+        # Rollback on any error
+        db.rollback()
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete customer: {str(e)}"
+        )
 
 # Hotel Management APIs
 @router.get("/hotels", response_model=List[HotelResponse])
@@ -231,26 +551,94 @@ def update_hotel(hotel_id: int, hotel_update: HotelUpdate, db: Session = Depends
             detail=f"Failed to update hotel: {str(e)}"
         )
 
-@router.delete("/hotels/{hotel_id}")
+@router.delete("/hotels/{hotel_id}", status_code=status.HTTP_200_OK)
 def delete_hotel(hotel_id: int, db: Session = Depends(get_db)):
-    """Delete a hotel"""
-    hotel = db.query(Hotel).filter(Hotel.id == hotel_id).first()
-    if not hotel:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Hotel not found"
-        )
-    
-    # delete the corresponding rooms
-    rooms = db.query(Room).filter(Room.hotelId == hotel_id).all()
-    for room in rooms:
-        db.delete(room)
+    """Delete a hotel and all its associated data"""
+    try:
+        # Find the hotel
+        hotel = db.query(Hotel).filter(Hotel.id == hotel_id).first()
+        if not hotel:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Hotel not found"
+            )
+        
+        # Find the associated user
+        user = db.query(User).filter(User.id == hotel.userId).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User associated with hotel not found"
+            )
 
-    # delete corresponding
-    
-    db.delete(hotel)
-    db.commit()
-    return {"message": "Hotel deleted successfully"}
+        # Check for active bookings
+        active_bookings = db.query(RoomBooking).join(Room, Room.id == RoomBooking.roomId)\
+            .filter(Room.hotelId == hotel_id)\
+            .filter(RoomBooking.checkoutDate > datetime.now())\
+            .count()
+            
+        if active_bookings > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete hotel with {active_bookings} active bookings"
+            )
+            
+        # Delete related entities in the correct order to maintain referential integrity
+        
+        # 1. Delete room bookings
+        bookings_deleted = db.query(RoomBooking).join(Room, Room.id == RoomBooking.roomId)\
+            .filter(Room.hotelId == hotel_id)\
+            .delete(synchronize_session=False)
+            
+        # 2. Delete room items
+        if 'RoomItem' in globals() or 'RoomItem' in locals():
+            items_deleted = db.query(RoomItem).join(Room, Room.id == RoomItem.roomId)\
+                .filter(Room.hotelId == hotel_id)\
+                .delete(synchronize_session=False)
+        
+        # 3. Delete rooms
+        rooms_deleted = db.query(Room).filter(Room.hotelId == hotel_id)\
+            .delete(synchronize_session=False)
+            
+        # 4. Delete hotel reviews
+        if 'HotelReview' in globals() or 'HotelReview' in locals():
+            reviews_deleted = db.query(HotelReview).filter(HotelReview.hotelId == hotel_id)\
+                .delete(synchronize_session=False)
+        
+        # 5. Delete the hotel itself
+        db.delete(hotel)
+        
+        # 6. Delete the user account
+        db.delete(user)
+        
+        # Commit the transaction
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Hotel deleted successfully",
+            "details": {
+                "hotel_id": hotel_id,
+                "rooms_deleted": rooms_deleted,
+                "bookings_deleted": bookings_deleted
+            }
+        }
+        
+    except HTTPException as http_ex:
+        # Re-raise HTTP exceptions without modifying them
+        raise http_ex
+        
+    except Exception as e:
+        # Rollback on any error
+        db.rollback()
+        
+        # Log the error
+        # logger.error(f"Failed to delete hotel {hotel_id}: {str(e)}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete hotel: {str(e)}"
+        )
 
 # Add endpoint to get hotel rooms
 @router.get("/hotels/{hotel_id}/rooms")
