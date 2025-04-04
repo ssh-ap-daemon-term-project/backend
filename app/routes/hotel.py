@@ -106,32 +106,64 @@ def get_occupancy_rate(db: Session = Depends(get_db)):
     }
 
 @router.get("/revenue", response_model=RevenueResponse)
-def get_revenue(db: Session = Depends(get_db)):
+def get_revenue(user_id: int = 1, db: Session = Depends(get_db)):
     """Calculate total revenue for the last 30 days and upcoming 30 days"""
 
     today = datetime.utcnow()
     upcoming_30_days = today + timedelta(days=30)
     last_30_days = today - timedelta(days=30)
-
-    # Revenue for the last 30 days (sum of booked room prices)
-    revenue_last_30_days = db.query(
-        func.sum(cast(func.coalesce(Room.price[1], 0), Float))  # First price in the price array
-    ).select_from(RoomBooking).join(Room, RoomBooking.roomId == Room.id).filter(
-        RoomBooking.startDate >= last_30_days,
-        RoomBooking.endDate <= today
-    ).scalar() or 0
-
-    # Revenue for the upcoming 30 days (sum of booked room prices)
-    revenue_upcoming_30_days = db.query(
-        func.sum(cast(func.coalesce(Room.price[1], 0), Float))
-    ).select_from(RoomBooking).join(Room, RoomBooking.roomId == Room.id).filter(
-        RoomBooking.startDate >= today,
-        RoomBooking.endDate <= upcoming_30_days
-    ).scalar() or 0
-
+    
+    # First get the hotel for this user
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    
+    if not hotel:
+        return {
+            "revenue_last_30_days": 0,
+            "revenue_upcoming_30_days": 0,
+            "revenue_difference": 0
+        }
+    
+    # Revenue for the last 30 days (completed bookings)
+    last_30_days_bookings = db.query(
+        models.RoomBooking, models.Room
+    ).join(
+        models.Room, models.RoomBooking.roomId == models.Room.id
+    ).filter(
+        models.Room.hotelId == hotel.id,
+        models.RoomBooking.startDate >= last_30_days,
+        models.RoomBooking.startDate <= today
+    ).all()
+    
+    revenue_last_30_days = 0
+    for booking, room in last_30_days_bookings:
+        # Calculate number of days in the booking
+        start_date = max(booking.startDate, last_30_days)
+        end_date = min(booking.endDate, today)
+        days = (end_date - start_date).days + 1  # +1 because end day is inclusive
+        revenue_last_30_days += room.basePrice * days
+    
+    # Revenue for the upcoming 30 days (future bookings)
+    upcoming_30_days_bookings = db.query(
+        models.RoomBooking, models.Room
+    ).join(
+        models.Room, models.RoomBooking.roomId == models.Room.id
+    ).filter(
+        models.Room.hotelId == hotel.id,
+        models.RoomBooking.startDate >= today,
+        models.RoomBooking.startDate <= upcoming_30_days
+    ).all()
+    
+    revenue_upcoming_30_days = 0
+    for booking, room in upcoming_30_days_bookings:
+        # Calculate number of days in the booking
+        start_date = max(booking.startDate, today)
+        end_date = min(booking.endDate, upcoming_30_days)
+        days = (end_date - start_date).days + 1  # +1 because end day is inclusive
+        revenue_upcoming_30_days += room.basePrice * days
+    
     # Calculate the difference
     revenue_difference = revenue_upcoming_30_days - revenue_last_30_days
-
+    
     return {
         "revenue_last_30_days": revenue_last_30_days,
         "revenue_upcoming_30_days": revenue_upcoming_30_days,
@@ -407,3 +439,136 @@ def update_room_count(
     db.commit()
     db.refresh(room)
     return room
+
+
+
+@router.get("/hotel-bookings", response_model=List[schemas.BookingResponse])
+def get_hotel_bookings(user_id: int = 1, db: Session = Depends(get_db)):
+    """
+    Get all bookings for a hotel associated with a user ID
+    Returns bookings with customer and room information
+    """
+    # Step 1: Get the hotel ID associated with this user
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    
+    if not hotel:
+        # If no hotel found for this user, return empty list
+        return []
+    
+    # Step 2: Get all bookings for rooms in this hotel
+    bookings = db.query(
+        models.RoomBooking,
+        models.Room.type.label("room_type"),
+        models.User.name.label("customer_name")
+    ).join(
+        models.Room, models.RoomBooking.roomId == models.Room.id
+    ).join(
+        models.Customer, models.RoomBooking.customerId == models.Customer.id
+    ).join(
+        models.User, models.Customer.userId == models.User.id
+    ).filter(
+        models.Room.hotelId == hotel.id
+    ).all()
+    
+    if not bookings:
+        return []
+    
+    # Step 3: Format response
+    today = datetime.utcnow().date()
+    formatted_bookings = []
+    
+    for booking, room_type, customer_name in bookings:
+        # Determine booking status based on dates
+        if booking.startDate.date() > today:
+            status = "pending"
+        elif booking.endDate.date() < today:
+            status = "completed"
+        else:
+            status = "confirmed"
+        
+        # Format the booking
+        formatted_booking = {
+            "id": booking.id,
+            "no_persons": booking.numberOfPersons,
+            "custfk": booking.customerId,
+            "roomfk": booking.roomId,
+            "start_date": booking.startDate.strftime("%Y-%m-%d"),
+            "end_date": booking.endDate.strftime("%Y-%m-%d"),
+            "customer_name": customer_name,
+            "room_type": room_type.capitalize(),
+            "status": status
+        }
+        
+        formatted_bookings.append(formatted_booking)
+    
+    return formatted_bookings
+
+
+# Then add this endpoint to your hotel.py file
+@router.get("/hotel-reviews", response_model=List[schemas.ReviewResponse])
+def get_hotel_reviews(user_id: int = 1, db: Session = Depends(get_db)):
+    """
+    Get all reviews for a hotel associated with a user ID
+    Returns reviews with customer information
+    """
+    # Step 1: Get the hotel ID associated with this user
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    
+    if not hotel:
+        # If no hotel found for this user, return empty list
+        return []
+    
+    # Step 2: Get all reviews for this hotel
+    reviews = db.query(
+        models.HotelReview,
+        models.User.name.label("customer_name")
+    ).join(
+        models.Customer, models.HotelReview.customerId == models.Customer.id
+    ).join(
+        models.User, models.Customer.userId == models.User.id
+    ).filter(
+        models.HotelReview.hotelId == hotel.id
+    ).all()
+    
+    if not reviews:
+        return []
+    
+    # Step 3: Format response
+    formatted_reviews = []
+    
+    for review, customer_name in reviews:
+        # Get customer initials
+        initials = "".join([name[0].upper() for name in customer_name.split() if name])
+        
+        # Try to find the room type from customer's last booking
+        room_type = "Various"  # Default if we can't find it
+        last_booking = db.query(models.RoomBooking).join(
+            models.Room
+        ).filter(
+            models.RoomBooking.customerId == review.customerId,
+            models.Room.hotelId == hotel.id
+        ).order_by(
+            models.RoomBooking.createdAt.desc()
+        ).first()
+        
+        if last_booking:
+            room = db.query(models.Room).filter(models.Room.id == last_booking.roomId).first()
+            if room:
+                room_type = room.type.capitalize()
+        
+        # Format the review
+        formatted_review = {
+            "id": review.id,
+            "customer_name": customer_name,
+            "customer_initials": initials,
+            "room_type": room_type,
+            "rating": review.rating,
+            "comment": review.description,
+            "date": review.createdAt.strftime("%Y-%m-%d"),
+            "status": "published",  # Default status since not in database
+            "response": ""  # Default empty response since not in database
+        }
+        
+        formatted_reviews.append(formatted_review)
+    
+    return formatted_reviews
