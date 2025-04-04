@@ -228,3 +228,14 @@ class ReviewResponse(BaseModel):
 
     class Config:
         orm_mode = True
+
+class DriverCreate(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    phone: str
+    carModel: str
+    carNumber: str
+    carType: Literal["sedan", "suv", "hatchback", "luxury"]
+    seatingCapacity: int
+    address: Optional[str] = ""
