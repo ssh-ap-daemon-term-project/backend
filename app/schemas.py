@@ -228,3 +228,45 @@ class CustomerResponse(CustomerBase):
     
     class Config:
         orm_mode = True
+    
+    
+    
+class BookingResponse(BaseModel):
+    id: int
+    no_persons: int
+    custfk: int
+    roomfk: int
+    start_date: str
+    end_date: str
+    customer_name: str
+    room_type: str
+    status: str
+
+    class Config:
+        orm_mode = True
+        
+        
+class ReviewResponse(BaseModel):
+    id: int
+    customer_name: str
+    customer_initials: str
+    room_type: str
+    rating: float
+    comment: str
+    date: str
+    status: str
+    response: str
+
+    class Config:
+        orm_mode = True
+
+class DriverCreate(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    phone: str
+    carModel: str
+    carNumber: str
+    carType: Literal["sedan", "suv", "hatchback", "luxury"]
+    seatingCapacity: int
+    address: Optional[str] = ""
