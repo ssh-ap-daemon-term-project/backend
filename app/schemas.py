@@ -20,6 +20,8 @@ class UserCreate(BaseModel):
     city: Optional[str] = Field(None, max_length=100, description="Max 100 characters")
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    rating: Optional[float] = None
+    description: Optional[str] = None
     
     # Fields specific to driver
     carModel: Optional[str] = Field(None, max_length=50, description="Max 50 characters")
@@ -56,15 +58,31 @@ class HotelCreate(HotelBase):
     pass
 
 class HotelUpdate(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
     name: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    rating: Optional[float] = None
     description: Optional[str] = None
 
-class HotelResponse(HotelBase):
+class HotelResponse(BaseModel):
     id: int
+    userId: int
+    name: str
+    address: str
+    email: EmailStr
+    phone: str
+    city: str
+    latitude: float
+    longitude: float
+    rating: float
+    description: Optional[str] = None
+    createdAt: datetime
     
     class Config:
         orm_mode = True
