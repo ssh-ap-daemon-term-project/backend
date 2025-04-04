@@ -46,6 +46,7 @@ class Hotel(Base):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     rating = Column(Float, nullable=False)
+    description = Column(String(500), nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
     user = relationship("User", uselist=False, back_populates="hotel")
@@ -60,9 +61,6 @@ class Room(Base):
     type = Column(Enum("basic", "luxury", "suite", "deluxe" , name="room_types"), nullable=False)
     roomCapacity = Column(Integer, nullable=False)
     totalNumber = Column(Integer, nullable=False)
-    availableNumber = Column(ARRAY(Integer), nullable=False)
-    bookedNumber = Column(ARRAY(Integer), nullable=False)
-    price = Column(ARRAY(Float), nullable=False)
     basePrice = Column(Float, nullable=False)
     hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
 
