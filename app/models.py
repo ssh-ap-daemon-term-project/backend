@@ -57,12 +57,13 @@ class Room(Base):
     __tablename__ = "rooms"
 
     id = Column(Integer, primary_key=True)
-    type = Column(Enum("basic", "luxury", "suite", name="room_types"), nullable=False)
+    type = Column(Enum("basic", "luxury", "suite", "deluxe" , name="room_types"), nullable=False)
     roomCapacity = Column(Integer, nullable=False)
     totalNumber = Column(Integer, nullable=False)
     availableNumber = Column(ARRAY(Integer), nullable=False)
     bookedNumber = Column(ARRAY(Integer), nullable=False)
     price = Column(ARRAY(Float), nullable=False)
+    basePrice = Column(Float, nullable=False)
     hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
 
     hotel = relationship("Hotel", uselist=False, back_populates="rooms")

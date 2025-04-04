@@ -1,6 +1,7 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List, Literal
-from datetime import date
+from pydantic import BaseModel, EmailStr, Field, RootModel
+from typing import Optional, List, Literal, Dict, Any, Union
+from datetime import date, datetime
+from enum import Enum
 
 class UserCreate(BaseModel):
     username: str = Field(..., max_length=50, description="Max 50 characters")
@@ -67,3 +68,114 @@ class HotelResponse(HotelBase):
     
     class Config:
         orm_mode = True
+
+# Room Booking Schemas
+class RoomBookingBase(BaseModel):
+    id: int
+    roomId: int
+    userId: int
+    startDate: datetime
+    endDate: datetime
+    status: str
+    numberOfPersons: int
+    
+    class Config:
+        orm_mode = True
+
+# Hotel Room Overview Schemas
+class HotelRoomOverviewResponse(BaseModel):
+    total_rooms: int
+    available_rooms_last_30_days: int
+    available_rooms_upcoming_30_days: int
+    available_rooms_difference: int
+
+# Occupancy Rate Schemas
+class OccupancyRateResponse(BaseModel):
+    occupancy_rate_upcoming_30_days: float
+    occupancy_rate_last_30_days: float
+    occupancy_rate_difference: float
+
+# Revenue Schemas
+class RevenueResponse(BaseModel):
+    revenue_last_30_days: float
+    revenue_upcoming_30_days: float
+    revenue_difference: float
+
+# Active Bookings Schemas
+class ActiveBookingsResponse(BaseModel):
+    bookings_last_30_days: List[RoomBookingBase]
+    bookings_upcoming_30_days: List[RoomBookingBase]
+    booking_count_difference: int
+
+# Room Availability Chart Schemas
+class RoomAvailabilityDataPoint(BaseModel):
+    date: str
+    available: int
+    booked: int
+
+class RoomAvailabilityChartResponse(RootModel):
+    root: List[RoomAvailabilityDataPoint]
+
+# Room Type Distribution Schemas
+class RoomTypeDistribution(BaseModel):
+    room_type: str
+    count: int
+
+class RoomTypeDistributionResponse(RootModel):
+    root: List[RoomTypeDistribution]
+
+# Recent Bookings Schema
+class RecentBookingsResponse(RootModel):
+    root: List[RoomBookingBase]
+
+# Room Overview Schema
+class RoomOverviewResponse(BaseModel):
+    room_overview: HotelRoomOverviewResponse
+    occupancy_rate: OccupancyRateResponse
+    revenue: RevenueResponse
+    recent_bookings_count: int
+    active_bookings_count: int
+    
+    
+class RoomTypeEnum(str, Enum):
+    basic = "basic"
+    luxury = "luxury" 
+    suite = "suite"
+
+class RoomCreate(BaseModel):
+    type: RoomTypeEnum
+    roomCapacity: int
+    totalNumber: int
+    hotelId: int
+    basePrice: float  # Initial price for all days
+
+class RoomResponse(RoomCreate):
+    id: int
+    availableNumber: List[int]
+    bookedNumber: List[int]
+    price: List[float]
+    
+    class Config:
+        orm_mode = True
+        
+        
+class MessageResponse(BaseModel):
+    detail: str
+    
+    
+class RoomListResponse(BaseModel):
+    id: int
+    total_no: int
+    type: str
+    room_capacity: int
+    no_booked: List[int]
+    no_available: List[int]
+    price: List[float] 
+    hotelfk: int
+
+    class Config:
+        orm_mode = True
+        
+# Add this schema
+class RoomCountUpdate(BaseModel):
+    totalNumber: int
