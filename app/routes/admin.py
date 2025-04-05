@@ -359,6 +359,136 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
             detail=f"Failed to delete customer: {str(e)}"
         )
 
+@router.get("/customers/{customer_id}/bookings")
+def get_customer_bookings(customer_id: int, db: Session = Depends(get_db)):
+    """Get all room bookings for a specific customer"""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+    
+    # Join with Room to get room type and hotel information
+    bookings = db.query(
+        RoomBooking,
+        Room.type,
+        Room.basePrice,
+        User.name.label("hotel_name")
+    ).join(
+        Room, RoomBooking.roomId == Room.id
+    ).join(
+        Hotel, Room.hotelId == Hotel.id
+    ).join(
+        User, Hotel.userId == User.id
+    ).filter(
+        RoomBooking.customerId == customer_id
+    ).all()
+    
+    bookings_data = []
+    for booking, room_type, price, hotel_name in bookings:
+        bookings_data.append({
+            "id": booking.id,
+            "hotelName": hotel_name,
+            "roomType": room_type,
+            "startDate": booking.startDate.strftime("%Y-%m-%d"),
+            "endDate": booking.endDate.strftime("%Y-%m-%d"),
+            "numberOfPersons": booking.numberOfPersons,
+            "status": "confirmed",  # You might want to add a status field to your RoomBooking model
+            "price": float(price)
+        })
+        
+    return bookings_data
+
+@router.get("/customers/{customer_id}/ride-bookings")
+def get_customer_ride_bookings(customer_id: int, db: Session = Depends(get_db)):
+    """Get all ride bookings for a specific customer"""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+    
+    # Join with Driver to get driver information
+    ride_bookings = db.query(
+        RideBooking,
+        User.name.label("driver_name"),
+        Driver.carModel
+    ).join(
+        Driver, RideBooking.driverId == Driver.id
+    ).join(
+        User, Driver.userId == User.id
+    ).filter(
+        RideBooking.customerId == customer_id
+    ).all()
+    
+    ride_bookings_data = []
+    for booking, driver_name, car_model in ride_bookings:
+        ride_bookings_data.append({
+            "id": booking.id,
+            "driverName": driver_name,
+            "carModel": car_model,
+            "pickupLocation": booking.pickupLocation,
+            "dropLocation": booking.dropLocation,
+            "pickupTime": booking.pickupTime.isoformat(),
+            "status": booking.status,
+            "price": float(booking.price)
+        })
+        
+    return ride_bookings_data
+
+@router.get("/customers/{customer_id}/reviews")
+def get_customer_reviews(customer_id: int, db: Session = Depends(get_db)):
+    """Get all reviews by a specific customer"""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+    
+    # Join with Hotel to get hotel information
+    reviews = db.query(
+        HotelReview,
+        User.name.label("hotel_name")
+    ).join(
+        Hotel, HotelReview.hotelId == Hotel.id
+    ).join(
+        User, Hotel.userId == User.id
+    ).filter(
+        HotelReview.customerId == customer_id
+    ).all()
+    
+    reviews_data = []
+    for review, hotel_name in reviews:
+        reviews_data.append({
+            "id": review.id,
+            "hotelName": hotel_name,
+            "rating": float(review.rating),
+            "comment": review.description,
+            "date": review.createdAt.strftime("%Y-%m-%d")
+        })
+        
+    return reviews_data
+
+@router.get("/customers/{customer_id}/itineraries")
+def get_customer_itineraries_count(customer_id: int, db: Session = Depends(get_db)):
+    """Get count of itineraries for a specific customer"""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+    
+    # Count itineraries
+    itineraries_count = db.query(Itinerary).filter(Itinerary.customerId == customer_id).count()
+    
+    return {
+        "count": itineraries_count
+    }
+
 # Hotel Management APIs
 @router.get("/hotels", response_model=List[HotelResponse])
 def get_all_hotels(db: Session = Depends(get_db)):
@@ -379,6 +509,7 @@ def get_all_hotels(db: Session = Depends(get_db)):
         hotel_data = {
             "id": hotel.id,
             "userId": hotel.userId,
+            "username": user.username,  # From User model
             "name": user.name,  # From User model
             "address": user.address,  # From User model
             "email": user.email,  # From User model
@@ -403,18 +534,40 @@ def get_all_hotels(db: Session = Depends(get_db)):
 @router.get("/hotels/{hotel_id}", response_model=HotelResponse)
 def get_hotel_by_id(hotel_id: int, db: Session = Depends(get_db)):
     """Get a specific hotel by ID"""
+    # Find the hotel
     hotel = db.query(Hotel).filter(Hotel.id == hotel_id).first()
     if not hotel:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Hotel not found"
         )
-    return hotel
-
-@router.post("/hotels", response_model=HotelResponse, status_code=status.HTTP_201_CREATED)
-def create_hotel(hotel: HotelCreate, db: Session = Depends(get_db)):
-    """Create a new hotel"""
-    new_hotel = Hotel(**hotel.dict())
+    
+    # Find the associated user
+    user = db.query(User).filter(User.id == hotel.userId).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User associated with hotel not found"
+        )
+    
+    # Create a combined dictionary with fields from both models
+    hotel_data = {
+        "id": hotel.id,
+        "userId": hotel.userId,
+        "username": user.username,
+        "name": user.name,
+        "address": user.address,
+        "email": user.email,
+        "phone": user.phone,
+        "city": hotel.city,
+        "latitude": hotel.latitude,
+        "longitude": hotel.longitude,
+        "rating": hotel.rating,
+        "description": hotel.description,
+        "createdAt": hotel.createdAt
+    }
+    
+    return hotel_data
     
 @router.put("/hotels/{hotel_id}", response_model=HotelResponse)
 def update_hotel(hotel_id: int, hotel_update: HotelUpdate, db: Session = Depends(get_db)):
@@ -573,10 +726,18 @@ def delete_hotel(hotel_id: int, db: Session = Depends(get_db)):
             )
 
         # Check for active bookings
-        active_bookings = db.query(RoomBooking).join(Room, Room.id == RoomBooking.roomId)\
-            .filter(Room.hotelId == hotel_id)\
-            .filter(RoomBooking.checkoutDate > datetime.now())\
-            .count()
+        # First find all room IDs for this hotel
+        room_ids = [room.id for room in db.query(Room.id).filter(Room.hotelId == hotel_id).all()]
+        
+        if not room_ids:
+            # No rooms to delete, can proceed with hotel deletion
+            active_bookings = 0
+        else:
+            # Check for active bookings using the room IDs
+            active_bookings = db.query(RoomBooking).filter(
+                RoomBooking.roomId.in_(room_ids),
+                RoomBooking.endDate > datetime.now()
+            ).count()
             
         if active_bookings > 0:
             raise HTTPException(
@@ -587,24 +748,30 @@ def delete_hotel(hotel_id: int, db: Session = Depends(get_db)):
         # Delete related entities in the correct order to maintain referential integrity
         
         # 1. Delete room bookings
-        bookings_deleted = db.query(RoomBooking).join(Room, Room.id == RoomBooking.roomId)\
-            .filter(Room.hotelId == hotel_id)\
-            .delete(synchronize_session=False)
+        if room_ids:
+            bookings_deleted = db.query(RoomBooking).filter(
+                RoomBooking.roomId.in_(room_ids)
+            ).delete(synchronize_session=False)
+        else:
+            bookings_deleted = 0
             
         # 2. Delete room items
         if 'RoomItem' in globals() or 'RoomItem' in locals():
-            items_deleted = db.query(RoomItem).join(Room, Room.id == RoomItem.roomId)\
-                .filter(Room.hotelId == hotel_id)\
-                .delete(synchronize_session=False)
+            if room_ids:
+                items_deleted = db.query(RoomItem).filter(
+                    RoomItem.roomId.in_(room_ids)
+                ).delete(synchronize_session=False)
         
         # 3. Delete rooms
-        rooms_deleted = db.query(Room).filter(Room.hotelId == hotel_id)\
-            .delete(synchronize_session=False)
+        rooms_deleted = db.query(Room).filter(
+            Room.hotelId == hotel_id
+        ).delete(synchronize_session=False)
             
         # 4. Delete hotel reviews
         if 'HotelReview' in globals() or 'HotelReview' in locals():
-            reviews_deleted = db.query(HotelReview).filter(HotelReview.hotelId == hotel_id)\
-                .delete(synchronize_session=False)
+            reviews_deleted = db.query(HotelReview).filter(
+                HotelReview.hotelId == hotel_id
+            ).delete(synchronize_session=False)
         
         # 5. Delete the hotel itself
         db.delete(hotel)
@@ -633,15 +800,11 @@ def delete_hotel(hotel_id: int, db: Session = Depends(get_db)):
         # Rollback on any error
         db.rollback()
         
-        # Log the error
-        # logger.error(f"Failed to delete hotel {hotel_id}: {str(e)}")
-        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete hotel: {str(e)}"
         )
 
-# Add endpoint to get hotel rooms
 @router.get("/hotels/{hotel_id}/rooms")
 def get_hotel_rooms(hotel_id: int, db: Session = Depends(get_db)):
     """Get all rooms for a specific hotel"""
@@ -653,7 +816,58 @@ def get_hotel_rooms(hotel_id: int, db: Session = Depends(get_db)):
         )
     
     rooms = db.query(Room).filter(Room.hotelId == hotel_id).all()
-    return rooms
+    rooms_data = []
+    
+    for room in rooms:
+        # Count available rooms (this is simplified - in reality you'd check bookings)
+        booked_count = db.query(RoomBooking).filter(
+            RoomBooking.roomId == room.id,
+            RoomBooking.endDate > datetime.now()
+        ).count()
+        
+        available_count = room.totalNumber - booked_count if booked_count <= room.totalNumber else 0
+        
+        rooms_data.append({
+            "id": room.id,
+            "type": room.type,
+            "roomCapacity": room.roomCapacity,
+            "totalNumber": room.totalNumber,
+            "availableNumber": available_count,
+            "basePrice": room.basePrice,
+        })
+        
+    return rooms_data
+
+@router.get("/hotels/{hotel_id}/reviews")
+def get_hotel_reviews(hotel_id: int, db: Session = Depends(get_db)):
+    """Get all reviews for a specific hotel"""
+    hotel = db.query(Hotel).filter(Hotel.id == hotel_id).first()
+    if not hotel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Hotel not found"
+        )
+    
+    reviews = db.query(HotelReview).filter(HotelReview.hotelId == hotel_id).all()
+    reviews_data = []
+    
+    for review in reviews:
+        # Get customer information
+        customer = db.query(Customer).filter(Customer.id == review.customerId).first()
+        user = db.query(User).filter(User.id == customer.userId).first() if customer else None
+        
+        if not customer or not user:
+            continue
+            
+        reviews_data.append({
+            "id": review.id,
+            "customer": user.name,
+            "rating": review.rating,
+            "comment": review.description,
+            "date": review.createdAt.strftime("%Y-%m-%d"),
+        })
+        
+    return reviews_data
 
 # Driver Management APIs
 @router.get("/drivers")
@@ -905,6 +1119,45 @@ def delete_driver(driver_id: int, db: Session = Depends(get_db)):
             detail=f"Failed to delete driver: {str(e)}"
         )
 
+@router.get("/drivers/{driver_id}/ride-bookings")
+def get_driver_ride_bookings(driver_id: int, db: Session = Depends(get_db)):
+    """Get all ride bookings for a specific driver"""
+    driver = db.query(Driver).filter(Driver.id == driver_id).first()
+    if not driver:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Driver not found"
+        )
+    
+    # Join with Customer to get customer information
+    ride_bookings = db.query(
+        RideBooking,
+        User.name.label("customer_name")
+    ).join(
+        Customer, RideBooking.customerId == Customer.id
+    ).join(
+        User, Customer.userId == User.id
+    ).filter(
+        RideBooking.driverId == driver_id
+    ).all()
+    
+    ride_bookings_data = []
+    for booking, customer_name in ride_bookings:
+        ride_bookings_data.append({
+            "id": booking.id,
+            "customerId": booking.customerId,
+            "customerName": customer_name,
+            "pickupLocation": booking.pickupLocation,
+            "dropLocation": booking.dropLocation,
+            "pickupTime": booking.pickupTime.isoformat(),
+            "dropTime": booking.dropTime.isoformat(),
+            "numberOfPersons": booking.numberOfPersons,
+            "price": float(booking.price),
+            "status": booking.status
+        })
+        
+    return ride_bookings_data
+
 @router.get("/dashboard-data")
 def get_dashboard_data(db: Session = Depends(get_db)):
     """
@@ -1072,3 +1325,55 @@ def get_dashboard_data(db: Session = Depends(get_db)):
     }
     
     return dashboard_data
+
+@router.get("/bookings/rooms")
+def get_all_room_bookings(db: Session = Depends(get_db)):
+    """Get all room bookings with detailed information"""
+    # Create aliases for the User model to avoid table name conflicts
+    HotelUser = aliased(User, name="hotel_user")
+    CustomerUser = aliased(User, name="customer_user")
+    
+    # Get all bookings with room, hotel and customer details
+    bookings_data = db.query(
+        RoomBooking, 
+        Room.type.label("room_type"),
+        Room.id.label("room_id"),
+        Hotel.id.label("hotel_id"),
+        CustomerUser.name.label("customer_name"),
+        HotelUser.name.label("hotel_name"),
+        Room.basePrice.label("price")
+    ).join(
+        Room, RoomBooking.roomId == Room.id
+    ).join(
+        Hotel, Room.hotelId == Hotel.id
+    ).join(
+        HotelUser, Hotel.userId == HotelUser.id  # Join using hotel user alias
+    ).join(
+        Customer, RoomBooking.customerId == Customer.id
+    ).join(
+        CustomerUser, Customer.userId == CustomerUser.id  # Join using customer user alias
+    ).all()
+    
+    bookings = []
+    for booking, room_type, room_id, hotel_id, customer_name, hotel_name, price in bookings_data:
+        # Calculate price based on duration
+        duration = (booking.endDate - booking.startDate).days
+        total_price = duration * price if duration > 0 else price
+        
+        bookings.append({
+            "id": booking.id,
+            "customerId": booking.customerId,
+            "customerName": customer_name,
+            "roomId": room_id,
+            "roomType": room_type,
+            "hotelId": hotel_id,
+            "hotelName": hotel_name,
+            "startDate": booking.startDate.isoformat(),
+            "endDate": booking.endDate.isoformat(),
+            "numberOfPersons": booking.numberOfPersons,
+            "status": "confirmed",  # Default status - you might want to add this to your model
+            "price": float(total_price),
+            "createdAt": booking.createdAt.isoformat()
+        })
+    
+    return bookings

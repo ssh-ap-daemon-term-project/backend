@@ -73,6 +73,7 @@ class HotelUpdate(BaseModel):
 class HotelResponse(BaseModel):
     id: int
     userId: int
+    username: str
     name: str
     address: str
     email: EmailStr
