@@ -8,6 +8,7 @@ from ..security import hash_password
 from datetime import datetime, timedelta
 from sqlalchemy import func
 from .. import schemas
+from ..schemas import CustomerCreate, CustomerUpdate, CustomerResponse
 from ..models import User, RoomBooking, Hotel, Room, RoomItem, HotelReview, Customer, RideBooking, Itinerary, ScheduleItem, Driver
 
 # Create router with prefix and tags
@@ -21,10 +22,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-# Add these imports if not already present
-from datetime import date
-from ..schemas import CustomerCreate, CustomerUpdate, CustomerResponse
 
 # Customer Management APIs
 @router.get("/customers", response_model=List[CustomerResponse])
