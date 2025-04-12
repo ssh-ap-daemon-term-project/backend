@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import auth, demo_protected, admin , hotel
+from .routes import auth, demo_protected, admin, hotel, customer, customer_itineraries
 # from .llmsql import LLMSQL
 # from .config import settings
 from .database import engine
@@ -23,6 +23,9 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(demo_protected.router, prefix="/api/protected", tags=["Protected"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(hotel.router, prefix="/api/hotel", tags=["Hotel"])
+app.include_router(customer_itineraries.router, prefix="/api/customer_itineraries", tags=["Customer Itineraries"])
+app.include_router(customer.router, prefix="/api/customer", tags=["Customer"])
+
 # app.include_router(llmsql_routes.router)
 
 @app.get("/")

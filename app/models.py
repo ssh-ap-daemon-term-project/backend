@@ -101,7 +101,7 @@ class RideBooking(Base):
 
     id = Column(Integer, primary_key=True)
     customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    driverId = Column(Integer, ForeignKey("drivers.id"), nullable=False)
+    driverId = Column(Integer, ForeignKey("drivers.id"))
     itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)  # Itinerary
     pickupLocation = Column(String(100), nullable=False)
     dropLocation = Column(String(100), nullable=False)
@@ -144,7 +144,7 @@ class ScheduleItem(Base):
     __tablename__ = "schedule_items"
 
     id = Column(Integer, primary_key=True)
-    itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
+    itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
     startTime = Column(DateTime, nullable=False)
     endTime = Column(DateTime, nullable=False)
     location = Column(String(100), nullable=False)
@@ -157,7 +157,7 @@ class ScheduleItem(Base):
 #     __tablename__ = "hotel_items"
 
 #     id = Column(Integer, primary_key=True)
-#     itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
+#     itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
 #     hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
 #     startDate = Column(DateTime, nullable=False)
 #     endDate = Column(DateTime, nullable=False)
@@ -170,7 +170,7 @@ class RoomItem(Base):
     __tablename__ = "room_items"
 
     id = Column(Integer, primary_key=True)
-    itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
+    itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
     roomId = Column(Integer, ForeignKey("rooms.id"), nullable=False)
     startDate = Column(DateTime, nullable=False)
     endDate = Column(DateTime, nullable=False)
