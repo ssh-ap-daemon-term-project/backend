@@ -491,9 +491,9 @@ def update_driver(driver_id: int, driver_data: dict, db: Session = Depends(get_d
             detail=f"Failed to update driver: {str(e)}"
         )
 
-@router.delete("/drivers/{driver_id}")
+@router.delete("/drivers/{driver_id}", response_model=schemas.MessageResponse)
 def delete_driver(driver_id: int, db: Session = Depends(get_db)):
-    """Delete a driver"""
+    """Delete a driver and associated user account"""
     # First get the driver record
     driver = db.query(Driver).filter(Driver.id == driver_id).first()
     
@@ -503,14 +503,32 @@ def delete_driver(driver_id: int, db: Session = Depends(get_db)):
             detail="Driver not found"
         )
     
-    # Check if the driver has any associated ride bookings
-    # TODO: Add check for ride bookings if that table exists in your model
+    # Check if the driver has any active ride bookings
+    active_bookings = db.query(RideBooking).filter(
+        RideBooking.driverId == driver_id,
+        RideBooking.status.in_(["confirmed"])  # Only active statuses
+    ).count()
+    
+    if active_bookings > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot delete driver with {active_bookings} active bookings"
+        )
     
     try:
-        # Delete the driver record - but keep the user record for audit purposes
+        # Get the associated user ID before deleting the driver
+        user_id = driver.userId
+        
+        # Delete the driver record
         db.delete(driver)
+        
+        # Delete the associated user record
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            db.delete(user)
+        
         db.commit()
-        return {"message": "Driver deleted successfully"}
+        return {"detail": "Driver and associated user account deleted successfully"}
         
     except Exception as e:
         db.rollback()
