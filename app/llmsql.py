@@ -2,7 +2,13 @@ from agno.agent import Agent
 from agno.tools.sql import SQLTools
 from agno.models.google import Gemini
 import psycopg2
-from query_refiner import SQLQueryPlannerAgent
+# Conditional import based on how the file is being used
+try:
+    # Try package-style import first (for when used in FastAPI)
+    from .query_refiner import SQLQueryPlannerAgent
+except ImportError:
+    # Fall back to direct import (for when run as a script)
+    from query_refiner import SQLQueryPlannerAgent
 from psycopg2.extras import RealDictCursor
 import re
 from typing import List, Dict, Any, Optional
@@ -10,6 +16,16 @@ from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
+
+refactor = Agent(
+    model=Gemini("gemini-2.0-flash-exp"),
+    instructions="""
+    You are a SQL query refactoring agent.
+    Your task is to give human readable responses from SQL queries.
+    You should only give the human readable response and not the SQL query.
+    """
+)
+
 
 
 class SQLDatabaseQueryProcessor:
@@ -23,51 +39,90 @@ class SQLDatabaseQueryProcessor:
             model=Gemini("gemini-2.0-flash-exp"),  
             tools=[SQLTools(db_url=self.db_url)],
             description="""
-                You are a database-driven assistant with access to a PostgreSQL database.
-                        Your responses should be strictly based on the available data.
-                        when the query comes you need to think which possible columns may have the data and then you need to query the database.
-                        and when querying be casreful like for example the query is "what are the hotels in kolkata" then you need to query the database like this:
-                        SELECT * FROM hotels WHERE city = 'kolkata'.
-                        and kolkata can be in any case like "Kolkata", "KOLKATA", "kolkata" etc. so you need to be case insensitive.
-                        (SEE YOU NEED TO HANDLE COMPLEX QUERIES EFFICIENTLY LIKE MAKING A JOIN BETWEEN TABLES AND GETTING THE DATA) 
-                        IF HOTEL NAMES IS ASKED THEN GIVE THE NAMES AND NOT EVERTHING OF THE TABLE
-                        
-                        Here's the database schema you have access to:
-                        - users: id, username, email, hashedPassword, phone, name, address, userType (customer, hotel, driver, admin), createdAt, updatedAt
-                        - customers: id, userId, dob, gender, createdAt
-                        - hotels: id, userId, city, latitude, longitude, rating, createdAt
-                        - rooms: id, type, roomCapacity, totalNumber, availableNumber, bookedNumber, price, hotelId
-                        - roomBookings: id, customerId, roomId, startDate, endDate, numberOfPersons, createdAt
-                        - drivers: id, userId, carModel, carNumber, carType, seatingCapacity, createdAt
-                        - rideBookings: id, customerId, driverId, itineraryId, pickupLocation, dropLocation, pickupTime, dropTime, numberOfPersons, price, status, createdAt
-                        - admins: id, userId, createdAt
-                        - itineraries: id, customerId, name, numberOfPersons, createdAt
-                        - schedule_items: id, itinerary_id, startTime, endTime, location, description, createdAt
-                        - room_items: id, itinerary_id, roomId, startDate, endDate, createdAt
-                        - hotel_reviews: id, customerId, hotelId, rating, description, createdAt
-                        also see that in the user table i have gven a field name that i also the name of the customer or the hotel or the driver or the admin so you need to be careful when querying the database.
-                        
-                        Important relationships:
-                        - Hotel information (including latitude and longitude) is stored in the "hotels" table
-                        - Room information is stored in the "rooms" table, linked to hotels through hotelId
-                        - Customer information is in the "customers" table, linked to users through userId
-                        - Reviews for hotels are in the "hotel_reviews" table
-                        - DONOT MAKE THE THING CASE SESNSITIVE, DO NOT USE THE TABLE NAME IN THE QUERY, JUST USE THE COLUMNS
-                        - The "roomBookings" table contains booking information for rooms, linked to customers through customerId
-                        - The "rideBookings" table contains booking information for rides, linked to customers through customerId and drivers through driverId
-                        
-                        When processing queries, be case-insensitive and understand different ways people might refer to tables or columns.
-                        For example, if someone asks about "hotel location", "hotel coordinates", "lat/long of hotels", they're referring to the latitude and longitude columns in the hotels table.
-                        
-                        Always perform queries using proper SQL syntax with quotes around string values and correct joins between tables as needed.
-                        
-                        VERY IMPORTANT: I need you to output your final SQL query in a code block like this:
-                        ```sql
-                        SELECT * FROM hotels WHERE LOWER(city) LIKE LOWER('%kolkata%');
-                        ```
-                        Make sure the query is exactly what should be executed, with correct table and column names.
-                        DONOT GIVE THE RESPONSE AS SQL QUERY SO GIVE A RESPONSE AFTER EXECUTING THE QUERY IN THE DATABASE
-            """
+    You are a database-driven assistant with access to a PostgreSQL database.
+    Your responses should be strictly based on the available data.
+    When a query comes, think about which columns may have the data and formulate an appropriate database query.
+    
+    Be careful with your queries. For example, if the query is "what are the hotels in kolkata", use:
+    SELECT * FROM hotels WHERE LOWER(city) LIKE LOWER('%kolkata%');
+    
+    Always use case-insensitive matching for text fields and handle complex queries by creating proper JOINs between tables.
+    If only hotel names are requested, return only the names instead of all table fields.
+    
+    Here's the complete database schema:
+    
+    - users: id, username, email, hashedPassword, phone, name, address, userType (customer, hotel, driver, admin), createdAt, updatedAt
+    
+    - customers: id, userId, dob, gender, createdAt
+      * Relationships: user (User), bookings (RoomBooking), rideBookings (RideBooking), itineraries (Itinerary), reviews (HotelReview)
+    
+    - hotels: id, userId, city, latitude, longitude, rating, description, createdAt
+      * Relationships: user (User), rooms (Room), reviews (HotelReview)
+    
+    - rooms: id, type (basic, luxury, suite, deluxe), roomCapacity, totalNumber, basePrice, hotelId, createdAt
+      * Relationships: hotel (Hotel), bookings (RoomBooking), roomItems (RoomItem)
+    
+    - roomBookings: id, customerId, roomId, startDate, endDate, numberOfPersons, createdAt
+      * Relationships: customer (Customer), room (Room)
+    
+    - drivers: id, userId, carModel, carNumber, carType (sedan, suv, hatchback, luxury), seatingCapacity, createdAt
+      * Relationships: user (User), rideBookings (RideBooking)
+    
+    - rideBookings: id, customerId, driverId, itineraryId, pickupLocation, dropLocation, pickupTime, dropTime, numberOfPersons, price, status (pending, confirmed, completed, cancelled), createdAt
+      * Relationships: customer (Customer), driver (Driver), itinerary (Itinerary)
+    
+    - admins: id, userId, createdAt
+      * Relationships: user (User)
+    
+    - itineraries: id, customerId, name, numberOfPersons, createdAt
+      * Relationships: customer (Customer), scheduleItems (ScheduleItem), roomItems (RoomItem), rideBookings (RideBooking)
+    
+    - schedule_items: id, itineraryId, startTime, endTime, location, description, createdAt
+      * Relationships: itinerary (Itinerary)
+    
+    - room_items: id, itineraryId, roomId, startDate, endDate, createdAt
+      * Relationships: itinerary (Itinerary), room (Room)
+    
+    - hotel_reviews: id, customerId, hotelId, rating, description, createdAt
+      * Relationships: customer (Customer), hotel (Hotel)
+    
+    Important relationships and tips:
+    
+    1. User information:
+       - The 'users' table contains core user data (name, email, etc.)
+       - Each user has a userType (customer, hotel, driver, admin)
+       - Detailed information for each user type is in the respective tables linked via userId
+    
+    2. Hotel information:
+       - Hotel details (name, address) are in the 'users' table where userType='hotel'
+       - Additional hotel details (city, coordinates, rating) are in the 'hotels' table
+       - Get hotel name by joining hotels with users on hotels.userId = users.id
+    
+    3. Room and booking information:
+       - Room information (type, capacity, price) is in the 'rooms' table
+       - Room bookings are tracked in 'roomBookings' table
+       - Rooms are linked to hotels through hotelId
+    
+    4. Travel itineraries:
+       - 'itineraries' table stores travel plans for customers
+       - 'schedule_items' contains activities in an itinerary
+       - 'room_items' links rooms to itineraries (hotel stays)
+       - 'rideBookings' handles transportation arrangements
+    
+    5. Reviews:
+       - Hotel reviews are stored in 'hotel_reviews' table
+    
+    Always use proper SQL syntax with quotes around string values and correct joins between tables.
+    Make sure your queries are case-insensitive for text matching.
+    
+    VERY IMPORTANT: Output your final SQL query in a code block like this:
+    ```sql
+    SELECT * FROM hotels WHERE LOWER(city) LIKE LOWER('%kolkata%');
+    ```
+    
+    Ensure the query is exactly what should be executed, with correct table and column names.
+    After executing the query, provide a clear, concise response based on the database results.
+"""
         )
 
     def extract_sql_query(self, response_text: str) -> Optional[str]:
@@ -154,6 +209,21 @@ class SQLDatabaseQueryProcessor:
         # Return the last result for backward compatibility
         return results[-1] if results else []
 
+    def final_response(self, query: str) -> str:
+        response = self.process_query(query)
+        sql_results = ""
+        for item in response:
+            # Append each dictionary as a string to the results
+            sql_results += str(item) + "\n"
+        prompt_template = f"""
+        You are a SQL query refactoring agent.
+        Your task is to give human readable responses from SQL queries.
+        Your response should be a human readable response and not the SQL query.
+        this is the user query: {query}
+        this is the SQL query results: {sql_results}
+        """
+        refactored_response = refactor.run(prompt_template)
+        return refactored_response.content
 
 # Main execution block
 if __name__ == "__main__":
@@ -163,5 +233,7 @@ if __name__ == "__main__":
     processor = SQLDatabaseQueryProcessor()
     
     # Process a test query
-    response = processor.process_query("corrdinates of hotels in mumbai?")
+    query = "what is the latitude longitude of the hotel hyatt in delhi?"
+    response = processor.final_response(query)
+    print("Final response:")
     print(response)

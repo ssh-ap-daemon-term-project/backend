@@ -37,25 +37,46 @@ class SQLQueryPlannerAgent:
         Database Schema:
         - users: id, username, email, hashedPassword, phone, name, address, userType (customer, hotel, driver, admin), createdAt, updatedAt
         - customers: id, userId, dob, gender, createdAt
-        - hotels: id, userId, city, latitude, longitude, rating, createdAt
-        - rooms: id, type, roomCapacity, totalNumber, availableNumber, bookedNumber, price, hotelId
+        - hotels: id, userId, city, latitude, longitude, rating, description, createdAt
+        - rooms: id, type (basic, luxury, suite, deluxe), roomCapacity, totalNumber, basePrice, hotelId, createdAt
         - roomBookings: id, customerId, roomId, startDate, endDate, numberOfPersons, createdAt
-        - drivers: id, userId, carModel, carNumber, carType, seatingCapacity, createdAt
-        - rideBookings: id, customerId, driverId, itineraryId, pickupLocation, dropLocation, pickupTime, dropTime, numberOfPersons, price, status, createdAt
+        - drivers: id, userId, carModel, carNumber, carType (sedan, suv, hatchback, luxury), seatingCapacity, createdAt
+        - rideBookings: id, customerId, driverId, itineraryId, pickupLocation, dropLocation, pickupTime, dropTime, numberOfPersons, price, status (pending, confirmed, completed, cancelled), createdAt
         - admins: id, userId, createdAt
         - itineraries: id, customerId, name, numberOfPersons, createdAt
-        - schedule_items: id, itinerary_id, startTime, endTime, location, description, createdAt
-        - room_items: id, itinerary_id, roomId, startDate, endDate, createdAt
+        - schedule_items: id, itineraryId, startTime, endTime, location, description, createdAt
+        - room_items: id, itineraryId, roomId, startDate, endDate, createdAt
         - hotel_reviews: id, customerId, hotelId, rating, description, createdAt
         
         Instructions:
         - **** If any location information is needed, include latitude and longitude from the hotels table.****
         - **** If hotel information is needed, include latitude and longitude from the hotels table.****
-        - If room information is needed, include type, roomCapacity, availableNumber, and price from the rooms table.
+        - If room information is needed, include type, roomCapacity, totalNumber, and basePrice from the rooms table.
         
-        Note:
+        Important relationships:
+        1. User information:
+        - The 'users' table contains core user data (name, email, etc.)
+        - Each user has a userType (customer, hotel, driver, admin)
+        - Detailed information for each user type is in the respective tables linked via userId
         
-        The 'users' table contains the names of hotels, customers, drivers, and admins. Use joins on userId to access those names when required.
+        2. Hotel information:
+        - Hotel details (name, address) are in the 'users' table where userType='hotel'
+        - Additional hotel details (city, coordinates, rating) are in the 'hotels' table
+        - Get hotel name by joining hotels with users on hotels.userId = users.id
+        
+        3. Room and booking information:
+        - Room information (type, capacity, price) is in the 'rooms' table
+        - Room bookings are tracked in 'roomBookings' table
+        - Rooms are linked to hotels through hotelId
+        
+        4. Travel itineraries:
+        - 'itineraries' table stores travel plans for customers
+        - 'schedule_items' contains activities in an itinerary
+        - 'room_items' links rooms to itineraries (hotel stays)
+        - 'rideBookings' handles transportation arrangements
+        
+        5. Reviews:
+        - Hotel reviews are stored in 'hotel_reviews' table
 
         Example:
         User Query: "Tell me about tourist locations in Mumbai and give a 7 days plan for hotels and other side activities, my budget is moderate"
@@ -64,26 +85,25 @@ class SQLQueryPlannerAgent:
 
         Output:
         [
-          "Get all hotels where LOWER(city) LIKE LOWER('%Mumbai%')",
-          "Join with users on userId to retrieve hotel names",
-          "Retrieve rooms for each hotel including type, roomCapacity, availableNumber, and price",
-          "Filter rooms with price in the moderate range (e.g., 1000-3000)",
-          "Get reviews for each hotel by joining on hotelId with hotel_reviews",
+        "Get all hotels where LOWER(city) LIKE LOWER('%Mumbai%')",
+        "Join with users on userId to retrieve hotel names",
+        "Retrieve rooms for each hotel including type, roomCapacity, totalNumber, and basePrice",
+        "Filter rooms with basePrice in the moderate range (e.g., 1000-3000)",
+        "Get reviews for each hotel by joining on hotelId with hotel_reviews",
         ]
         
-       Example:
+    Example:
         User Query: "Find locations near the Taj Hotel in Mumbai."
         
         --- Important instruction : Do not give python or json these kind of words in the output.
 
         Output:
         [
-          "Get all hotels where LOWER(city) LIKE LOWER('%Mumbai%')",
-          "Join with users on userId to retrieve hotel names",
-           "Get latitude and longitude of the hotel",
+        "Get all hotels where LOWER(city) LIKE LOWER('%Mumbai%')",
+        "Join with users on userId to retrieve hotel names",
+        "Get latitude and longitude of the hotel",
         ]
         """
-
     def run(self, user_query: str) -> list:
         """
         Executes the agent on the user query and returns the list of sub-query tasks.
