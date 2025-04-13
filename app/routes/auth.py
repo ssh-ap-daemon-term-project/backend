@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from ..schemas import UserCreate, UserResponse, UserLogin
@@ -6,6 +6,7 @@ from ..models import User, Customer, Hotel, Driver, Admin
 from ..database import SessionLocal
 from ..security import hash_password, verify_password, create_access_token
 from ..config import ACCESS_TOKEN_EXPIRE_MINUTES
+from ..middleware import is_admin
 
 router = APIRouter()
 
@@ -17,10 +18,18 @@ def get_db():
         db.close()
 
 @router.post("/signup", response_model=UserResponse)
-def signup(user: UserCreate, response: Response, db: Session = Depends(get_db)):
+def signup(user: UserCreate, response: Response, request: Request, db: Session = Depends(get_db)):
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
+    
+    existing_user = db.query(User).filter(User.username == user.username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    existing_user = db.query(User).filter(User.phone == user.phone).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Phone number already registered")
     
     try:
         hashed = hash_password(user.password)
@@ -46,16 +55,25 @@ def signup(user: UserCreate, response: Response, db: Session = Depends(get_db)):
             db.add(customer)
     
         elif user.userType == "hotel":
+            # Check if admin has made the request using is_admin middleware
+            creator_user = is_admin(request)
+            
             if user.city is None:
                 raise HTTPException(status_code=400, detail="City is required")
             if user.latitude is None:
                 raise HTTPException(status_code=400, detail="Latitude is required")
             if user.longitude is None:
                 raise HTTPException(status_code=400, detail="Longitude is required")
-            hotel = Hotel(userId=new_user.id, city=user.city, latitude=user.latitude, longitude=user.longitude, rating=0.0)
+            if user.rating is None:
+                raise HTTPException(status_code=400, detail="Rating is required")
+            if user.description is None:
+                raise HTTPException(status_code=400, detail="Description is required")
+            hotel = Hotel(userId=new_user.id, city=user.city, latitude=user.latitude, longitude=user.longitude, rating=user.rating, description=user.description)
             db.add(hotel)
     
         elif user.userType == "driver":
+            # Check if admin has made the request using is_admin middleware
+            creator_user = is_admin(request)
             if user.carModel is None:
                 raise HTTPException(status_code=400, detail="Car model is required")
             if user.carNumber is None:

@@ -46,6 +46,7 @@ class Hotel(Base):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     rating = Column(Float, nullable=False)
+    description = Column(String(500), nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
     user = relationship("User", uselist=False, back_populates="hotel")
@@ -57,12 +58,10 @@ class Room(Base):
     __tablename__ = "rooms"
 
     id = Column(Integer, primary_key=True)
-    type = Column(Enum("basic", "luxury", "suite", name="room_types"), nullable=False)
+    type = Column(Enum("basic", "luxury", "suite", "deluxe" , name="room_types"), nullable=False)
     roomCapacity = Column(Integer, nullable=False)
     totalNumber = Column(Integer, nullable=False)
-    availableNumber = Column(ARRAY(Integer), nullable=False)
-    bookedNumber = Column(ARRAY(Integer), nullable=False)
-    price = Column(ARRAY(Float), nullable=False)
+    basePrice = Column(Float, nullable=False)
     hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
 
     hotel = relationship("Hotel", uselist=False, back_populates="rooms")
@@ -102,7 +101,7 @@ class RideBooking(Base):
 
     id = Column(Integer, primary_key=True)
     customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    driverId = Column(Integer, ForeignKey("drivers.id"), nullable=False)
+    driverId = Column(Integer, ForeignKey("drivers.id"))
     itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)  # Itinerary
     pickupLocation = Column(String(100), nullable=False)
     dropLocation = Column(String(100), nullable=False)
@@ -145,7 +144,7 @@ class ScheduleItem(Base):
     __tablename__ = "schedule_items"
 
     id = Column(Integer, primary_key=True)
-    itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
+    itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
     startTime = Column(DateTime, nullable=False)
     endTime = Column(DateTime, nullable=False)
     location = Column(String(100), nullable=False)
@@ -158,7 +157,7 @@ class ScheduleItem(Base):
 #     __tablename__ = "hotel_items"
 
 #     id = Column(Integer, primary_key=True)
-#     itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
+#     itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
 #     hotelId = Column(Integer, ForeignKey("hotels.id"), nullable=False)
 #     startDate = Column(DateTime, nullable=False)
 #     endDate = Column(DateTime, nullable=False)
@@ -171,7 +170,7 @@ class RoomItem(Base):
     __tablename__ = "room_items"
 
     id = Column(Integer, primary_key=True)
-    itinerary_id = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
+    itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
     roomId = Column(Integer, ForeignKey("rooms.id"), nullable=False)
     startDate = Column(DateTime, nullable=False)
     endDate = Column(DateTime, nullable=False)

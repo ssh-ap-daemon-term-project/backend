@@ -1,11 +1,23 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends , HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from ..models import User, RoomBooking , Room
+from ..models import User, RoomBooking, Room
 from ..database import SessionLocal
 from ..middleware import is_hotel
-from datetime import datetime, timedelta
-from sqlalchemy import func, cast, Numeric , Float
+from datetime import datetime, timedelta    
+from sqlalchemy import func, cast, Numeric, Float
+from .. import schemas, models
+from typing import List
+from ..schemas import (
+    HotelRoomOverviewResponse,
+    OccupancyRateResponse,
+    RevenueResponse,
+    ActiveBookingsResponse,
+    RoomAvailabilityChartResponse,
+    RoomTypeDistributionResponse,
+    RecentBookingsResponse,
+    RoomOverviewResponse
+)
 
 # Create router with prefix and tags
 router = APIRouter(
@@ -20,7 +32,7 @@ def get_db():
         db.close()
 
 # Now your routes will automatically have /hotel prefix
-@router.get("/hotelRoom")
+@router.get("/hotelRoom", response_model=HotelRoomOverviewResponse)
 def get_hotelRoom(db: Session = Depends(get_db)):
     """Get hotel Room"""
     today = datetime.utcnow()
@@ -58,7 +70,7 @@ def get_hotelRoom(db: Session = Depends(get_db)):
     return overview_data
 
 # Api for getting the Occupancy Rate...
-@router.get("/occupancy-rate")
+@router.get("/occupancy-rate", response_model=OccupancyRateResponse)
 def get_occupancy_rate(db: Session = Depends(get_db)):
     """Get occupancy rate for the upcoming 30 days and the last 30 days."""
     today = datetime.utcnow()
@@ -93,34 +105,65 @@ def get_occupancy_rate(db: Session = Depends(get_db)):
         "occupancy_rate_difference": round(occupancy_rate_difference, 2)
     }
 
-
-@router.get("/revenue")
-def get_revenue(db: Session = Depends(get_db)):
+@router.get("/revenue", response_model=RevenueResponse)
+def get_revenue(user_id: int = 1, db: Session = Depends(get_db)):
     """Calculate total revenue for the last 30 days and upcoming 30 days"""
 
     today = datetime.utcnow()
     upcoming_30_days = today + timedelta(days=30)
     last_30_days = today - timedelta(days=30)
-
-    # Revenue for the last 30 days (sum of booked room prices)
-    revenue_last_30_days = db.query(
-        func.sum(cast(func.coalesce(Room.price[1], 0), Float))  # First price in the price array
-    ).select_from(RoomBooking).join(Room, RoomBooking.roomId == Room.id).filter(
-        RoomBooking.startDate >= last_30_days,
-        RoomBooking.endDate <= today
-    ).scalar() or 0
-
-    # Revenue for the upcoming 30 days (sum of booked room prices)
-    revenue_upcoming_30_days = db.query(
-        func.sum(cast(func.coalesce(Room.price[1], 0), Float))
-    ).select_from(RoomBooking).join(Room, RoomBooking.roomId == Room.id).filter(
-        RoomBooking.startDate >= today,
-        RoomBooking.endDate <= upcoming_30_days
-    ).scalar() or 0
-
+    
+    # First get the hotel for this user
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    
+    if not hotel:
+        return {
+            "revenue_last_30_days": 0,
+            "revenue_upcoming_30_days": 0,
+            "revenue_difference": 0
+        }
+    
+    # Revenue for the last 30 days (completed bookings)
+    last_30_days_bookings = db.query(
+        models.RoomBooking, models.Room
+    ).join(
+        models.Room, models.RoomBooking.roomId == models.Room.id
+    ).filter(
+        models.Room.hotelId == hotel.id,
+        models.RoomBooking.startDate >= last_30_days,
+        models.RoomBooking.startDate <= today
+    ).all()
+    
+    revenue_last_30_days = 0
+    for booking, room in last_30_days_bookings:
+        # Calculate number of days in the booking
+        start_date = max(booking.startDate, last_30_days)
+        end_date = min(booking.endDate, today)
+        days = (end_date - start_date).days + 1  # +1 because end day is inclusive
+        revenue_last_30_days += room.basePrice * days
+    
+    # Revenue for the upcoming 30 days (future bookings)
+    upcoming_30_days_bookings = db.query(
+        models.RoomBooking, models.Room
+    ).join(
+        models.Room, models.RoomBooking.roomId == models.Room.id
+    ).filter(
+        models.Room.hotelId == hotel.id,
+        models.RoomBooking.startDate >= today,
+        models.RoomBooking.startDate <= upcoming_30_days
+    ).all()
+    
+    revenue_upcoming_30_days = 0
+    for booking, room in upcoming_30_days_bookings:
+        # Calculate number of days in the booking
+        start_date = max(booking.startDate, today)
+        end_date = min(booking.endDate, upcoming_30_days)
+        days = (end_date - start_date).days + 1  # +1 because end day is inclusive
+        revenue_upcoming_30_days += room.basePrice * days
+    
     # Calculate the difference
     revenue_difference = revenue_upcoming_30_days - revenue_last_30_days
-
+    
     return {
         "revenue_last_30_days": revenue_last_30_days,
         "revenue_upcoming_30_days": revenue_upcoming_30_days,
@@ -128,8 +171,7 @@ def get_revenue(db: Session = Depends(get_db)):
     }
     
 # Api for getting the Active Bookings
-# Api for getting the Active Bookings
-@router.get("/active-bookings")
+@router.get("/active-bookings", response_model=ActiveBookingsResponse)
 def get_active_bookings(db: Session = Depends(get_db)):
     """Get active bookings for the last 30 days and upcoming 30 days"""
     today = datetime.utcnow()
@@ -140,14 +182,12 @@ def get_active_bookings(db: Session = Depends(get_db)):
     bookings_last_30_days = db.query(RoomBooking).filter(
         RoomBooking.startDate >= last_30_days,
         RoomBooking.startDate <= today,
-        RoomBooking.status == "active"
     ).all()
     
     # Get bookings for the upcoming 30 days
     bookings_upcoming_30_days = db.query(RoomBooking).filter(
         RoomBooking.startDate >= today,
         RoomBooking.startDate <= upcoming_30_days,
-        RoomBooking.status == "active"
     ).all()
     
     # Calculate the difference in booking count
@@ -161,8 +201,7 @@ def get_active_bookings(db: Session = Depends(get_db)):
         "booking_count_difference": booking_count_difference
     }
     
-
-@router.get("/room-availability-chart")
+@router.get("/room-availability-chart", response_model=RoomAvailabilityChartResponse)
 def get_room_availability_chart(days: int = 10, db: Session = Depends(get_db)):
     """
     Get daily room availability data for charting
@@ -204,7 +243,7 @@ def get_room_availability_chart(days: int = 10, db: Session = Depends(get_db)):
     
     return chart_data
 
-@router.get("/room-type-distribution")
+@router.get("/room-type-distribution", response_model=RoomTypeDistributionResponse)
 def get_room_type_distribution(db: Session = Depends(get_db)):
     """
     Get distribution of room types
@@ -221,7 +260,7 @@ def get_room_type_distribution(db: Session = Depends(get_db)):
     
     return distribution_data
 
-@router.get("/recent-bookings")
+@router.get("/recent-bookings", response_model=RecentBookingsResponse)
 def get_recent_bookings(db: Session = Depends(get_db)):
     """
     Get recent bookings
@@ -231,3 +270,305 @@ def get_recent_bookings(db: Session = Depends(get_db)):
     recent_bookings = db.query(RoomBooking).order_by(RoomBooking.createdAt.desc()).limit(5).all()
     
     return recent_bookings
+
+# @router.get("/room-overview", response_model=RoomOverviewResponse , status_code= 200)
+# def get_room_overview(db: Session = Depends(get_db)):
+#     """
+#     Get a comprehensive overview of the hotel's key metrics
+#     Returns a summary of various dashboard elements
+#     """
+#     today = datetime.utcnow()
+    
+#     # Get room overview data
+#     room_overview = get_hotelRoom(db)
+    
+#     # Get occupancy rate data
+#     occupancy_rate = get_occupancy_rate(db)
+    
+#     # Get revenue data
+#     revenue = get_revenue(db)
+    
+#     # Count of active bookings
+#     active_bookings_count = db.query(RoomBooking).filter(
+#         RoomBooking.endDate >= today
+#     ).count()
+    
+#     # Count of recent bookings (last 7 days)
+#     week_ago = today - timedelta(days=7)
+#     recent_bookings_count = db.query(RoomBooking).filter(
+#         RoomBooking.createdAt >= week_ago
+#     ).count()
+    
+#     return {
+#         "room_overview": room_overview,
+#         "occupancy_rate": occupancy_rate,
+#         "revenue": revenue,
+#         "recent_bookings_count": recent_bookings_count,
+#         "active_bookings_count": active_bookings_count
+#     }
+    
+    
+    
+# API for adding the new Room-Type
+def check_room_type_exists(db: Session, hotel_id: int, room_type: str):
+    """Check if a room of this type already exists for the hotel"""
+    return db.query(models.Room).filter(
+        models.Room.hotelId == hotel_id,
+        models.Room.type == room_type
+    ).first()
+    
+def create_room(db: Session, room_data: schemas.RoomCreate):
+    """Create a new room"""
+    # Create arrays for the room data - 60 days
+    price_array = [room_data.basePrice] * 60
+    available_array = [room_data.totalNumber] * 60
+    booked_array = [0] * 60
+    
+    new_room = models.Room(
+        type=room_data.type,
+        roomCapacity=room_data.roomCapacity,
+        totalNumber=room_data.totalNumber,
+        availableNumber=available_array,
+        bookedNumber=booked_array,
+        price=price_array,
+        hotelId=room_data.hotelId,
+        basePrice=room_data.basePrice
+    )
+    
+    db.add(new_room)
+    db.commit()
+    db.refresh(new_room)
+    return new_room
+
+
+@router.post("/add-room", response_model=schemas.RoomResponse, status_code=200)
+def create_hotel_room(room_data: schemas.RoomCreate, db: Session = Depends(get_db)):
+    """Create a new room type for a hotel"""
+    # Check if room type already exists for this hotel
+    existing_room = check_room_type_exists(db, room_data.hotelId, room_data.type)
+    if existing_room:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Room of type {room_data.type} already exists for this hotel"
+        )
+    
+    # Create new room
+    return create_room(db, room_data)
+
+@router.delete("/delete-room/{room_id}", response_model=schemas.MessageResponse)
+def delete_room(room_id: int, db: Session = Depends(get_db)):
+    """Delete a room type"""
+    # Find the room
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if room is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+    
+    # Check if room has bookings
+    has_bookings = db.query(models.RoomBooking).filter(models.RoomBooking.roomId == room_id).first()
+    if has_bookings:
+        raise HTTPException(status_code=409, detail="Cannot delete room with active bookings")
+    
+    # Delete the room
+    db.delete(room)
+    db.commit()
+    
+    return {"detail": "Room deleted successfully"}
+
+
+@router.get("/room-overview", response_model=List[schemas.RoomListResponse])
+def get_room_overview(user_id: int = 1, db: Session = Depends(get_db)):
+    """
+    Get all rooms for a hotel associated with a user ID
+    Returns rooms with arrays for booking, availability, and pricing data
+    """
+    # Step 1: Get the hotel ID associated with this user
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    
+    if not hotel:
+        # If no hotel found for this user, return empty list
+        return []
+    
+    # Step 2: Get all rooms for the hotel
+    rooms = db.query(models.Room).filter(models.Room.hotelId == hotel.id).all()
+    
+    if not rooms:
+        return []
+    
+    # Step 3: Format response to match frontend expected structure
+    formatted_rooms = []
+    for room in rooms:
+        formatted_room = {
+            "id": room.id,
+            "total_no": room.totalNumber,
+            "type": room.type.capitalize(),  # Capitalize for display
+            "room_capacity": room.roomCapacity,
+            "no_booked": room.bookedNumber,
+            "no_available": room.availableNumber,
+            "price": room.price,
+            "hotelfk": room.hotelId
+        }
+        formatted_rooms.append(formatted_room)
+    
+    return formatted_rooms
+
+
+@router.patch("/rooms/{room_id}", response_model=schemas.RoomResponse)
+def update_room_count(
+    room_id: int, 
+    room_update: schemas.RoomCountUpdate, 
+    db: Session = Depends(get_db)
+):
+    """Update room total count"""
+    # Find the room
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    
+    # Update the room count
+    old_count = room.totalNumber
+    room.totalNumber = room_update.totalNumber
+    
+    # Calculate difference for availability updates
+    difference = room_update.totalNumber - old_count
+    
+    # Update available numbers for future dates
+    for i in range(len(room.availableNumber)):
+        # Don't reduce availability below booked rooms
+        room.availableNumber[i] = max(room.bookedNumber[i], room.availableNumber[i] + difference)
+    
+    db.commit()
+    db.refresh(room)
+    return room
+
+
+
+@router.get("/hotel-bookings", response_model=List[schemas.BookingResponse])
+def get_hotel_bookings(user_id: int = 1, db: Session = Depends(get_db)):
+    """
+    Get all bookings for a hotel associated with a user ID
+    Returns bookings with customer and room information
+    """
+    # Step 1: Get the hotel ID associated with this user
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    
+    if not hotel:
+        # If no hotel found for this user, return empty list
+        return []
+    
+    # Step 2: Get all bookings for rooms in this hotel
+    bookings = db.query(
+        models.RoomBooking,
+        models.Room.type.label("room_type"),
+        models.User.name.label("customer_name")
+    ).join(
+        models.Room, models.RoomBooking.roomId == models.Room.id
+    ).join(
+        models.Customer, models.RoomBooking.customerId == models.Customer.id
+    ).join(
+        models.User, models.Customer.userId == models.User.id
+    ).filter(
+        models.Room.hotelId == hotel.id
+    ).all()
+    
+    if not bookings:
+        return []
+    
+    # Step 3: Format response
+    today = datetime.utcnow().date()
+    formatted_bookings = []
+    
+    for booking, room_type, customer_name in bookings:
+        # Determine booking status based on dates
+        if booking.startDate.date() > today:
+            status = "pending"
+        elif booking.endDate.date() < today:
+            status = "completed"
+        else:
+            status = "confirmed"
+        
+        # Format the booking
+        formatted_booking = {
+            "id": booking.id,
+            "no_persons": booking.numberOfPersons,
+            "custfk": booking.customerId,
+            "roomfk": booking.roomId,
+            "start_date": booking.startDate.strftime("%Y-%m-%d"),
+            "end_date": booking.endDate.strftime("%Y-%m-%d"),
+            "customer_name": customer_name,
+            "room_type": room_type.capitalize(),
+            "status": status
+        }
+        
+        formatted_bookings.append(formatted_booking)
+    
+    return formatted_bookings
+
+
+# Then add this endpoint to your hotel.py file
+@router.get("/hotel-reviews", response_model=List[schemas.ReviewResponse])
+def get_hotel_reviews(user_id: int = 1, db: Session = Depends(get_db)):
+    """
+    Get all reviews for a hotel associated with a user ID
+    Returns reviews with customer information
+    """
+    # Step 1: Get the hotel ID associated with this user
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    
+    if not hotel:
+        # If no hotel found for this user, return empty list
+        return []
+    
+    # Step 2: Get all reviews for this hotel
+    reviews = db.query(
+        models.HotelReview,
+        models.User.name.label("customer_name")
+    ).join(
+        models.Customer, models.HotelReview.customerId == models.Customer.id
+    ).join(
+        models.User, models.Customer.userId == models.User.id
+    ).filter(
+        models.HotelReview.hotelId == hotel.id
+    ).all()
+    
+    if not reviews:
+        return []
+    
+    # Step 3: Format response
+    formatted_reviews = []
+    
+    for review, customer_name in reviews:
+        # Get customer initials
+        initials = "".join([name[0].upper() for name in customer_name.split() if name])
+        
+        # Try to find the room type from customer's last booking
+        room_type = "Various"  # Default if we can't find it
+        last_booking = db.query(models.RoomBooking).join(
+            models.Room
+        ).filter(
+            models.RoomBooking.customerId == review.customerId,
+            models.Room.hotelId == hotel.id
+        ).order_by(
+            models.RoomBooking.createdAt.desc()
+        ).first()
+        
+        if last_booking:
+            room = db.query(models.Room).filter(models.Room.id == last_booking.roomId).first()
+            if room:
+                room_type = room.type.capitalize()
+        
+        # Format the review
+        formatted_review = {
+            "id": review.id,
+            "customer_name": customer_name,
+            "customer_initials": initials,
+            "room_type": room_type,
+            "rating": review.rating,
+            "comment": review.description,
+            "date": review.createdAt.strftime("%Y-%m-%d"),
+            "status": "published",  # Default status since not in database
+            "response": ""  # Default empty response since not in database
+        }
+        
+        formatted_reviews.append(formatted_review)
+    
+    return formatted_reviews
