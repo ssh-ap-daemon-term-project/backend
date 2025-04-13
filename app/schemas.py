@@ -170,9 +170,9 @@ class RoomCreate(BaseModel):
 
 class RoomResponse(RoomCreate):
     id: int
-    availableNumber: List[int]
-    bookedNumber: List[int]
-    price: List[float]
+    roomCapacity: int
+    totalNumber: int
+    basePrice: float
     
     class Config:
         from_attributes = True
@@ -187,9 +187,9 @@ class RoomListResponse(BaseModel):
     total_no: int
     type: str
     room_capacity: int
-    no_booked: List[int]
+    # no_booked: List[int]
     no_available: List[int]
-    price: List[float] 
+    price: float
     hotelfk: int
 
     class Config:
@@ -311,10 +311,8 @@ class RoomItemCreate(RoomItemBase):
 
 class RoomItemResponse(RoomItemBase):
     id: int
-    itinerary_id: int
+    itineraryId: int
     createdAt: datetime
-    city: Optional[str] = None
-    hotelName: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -323,8 +321,9 @@ class ItineraryResponse(ItineraryBase):
     id: int
     customerId: int
     createdAt: datetime
-    room_items: List[RoomItemResponse] = []
-    schedule_items: List[ScheduleItemResponse] = []
+    roomItems: List[RoomItemResponse] = []
+    scheduleItems: List[ScheduleItemResponse] = []
+    # rideBookings: List[RideBookingResponse] = []
     startDate: Optional[datetime] = None
     endDate: Optional[datetime] = None
     destinations: List[str] = []
@@ -332,9 +331,91 @@ class ItineraryResponse(ItineraryBase):
     class Config:
         from_attributes = True
 
+# Hotel Schema
+class GetItineraryHotelResponse(BaseModel):
+    id: int
+    name: str
+    city: str
+    address: Optional[str] = None
+    description: Optional[str] = None
+    stars: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+# Room Schema
+class GetItineraryRoomResponse(BaseModel):
+    id: int
+    hotelId: int
+    type: str
+    roomCapacity: int
+    basePrice: float
+    totalNumber: int
+    hotel: Optional[GetItineraryHotelResponse] = None
+    
+    class Config:
+        from_attributes = True
+        
+class GetItineraryRoomItemResponse(BaseModel):
+    id: int
+    itineraryId: int
+    roomId: int
+    startDate: datetime
+    endDate: datetime
+    room: Optional[GetItineraryRoomResponse] = None
+    
+    class Config:
+        from_attributes = True
+
+# Complete Itinerary Schema with nested relationships
+class GetItineraryResponse(BaseModel):
+    id: int
+    customerId: int
+    name: str
+    numberOfPersons: int
+    createdAt: datetime
+    startDate: Optional[datetime] = None
+    endDate: Optional[datetime] = None
+    destinations: List[str] = Field(default_factory=list)
+    
+    # Relationships with nested data
+    roomItems: List[GetItineraryRoomItemResponse] = Field(default_factory=list)
+    scheduleItems: List[ScheduleItemResponse] = Field(default_factory=list)
+    # rideBookings: List[RideBookingResponse] = Field(default_factory=list)
+    
+    class Config:
+        from_attributes = True
+
 class ItineraryItemsResponse(BaseModel):
     schedule_items: List[ScheduleItemResponse] = []
     room_items: List[RoomItemResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+# Input schema for updating room dates
+class RoomItemUpdate(BaseModel):
+    startDate: Optional[datetime] = None
+    endDate: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+# Response schema for the updated room item with extended information
+class UpdateItineraryRoomItemResponse(BaseModel):
+    id: int
+    itineraryId: int
+    roomId: int
+    startDate: datetime
+    endDate: datetime
+    createdAt: datetime
+    hotelName: str
+    roomName: str
+    roomType: str
+    city: str
+    pricePerNight: float
+    capacity: int
+    isPaid: bool = False
     
     class Config:
         from_attributes = True
@@ -380,7 +461,7 @@ class ItineraryItemsResponse(BaseModel):
 #     createdAt: datetime
 
 #     class Config:
-#         orm_mode = True
+#         from_attributes = True
 
 # # Base schemas - Customer
 # class CustomerBase(BaseModel):
@@ -396,7 +477,7 @@ class ItineraryItemsResponse(BaseModel):
 #     createdAt: datetime
 
 #     class Config:
-#         orm_mode = True
+#         from_attributes = True
 
 # # Base schemas - Schedule Item
 # class ScheduleItemBase(BaseModel):
@@ -408,11 +489,11 @@ class ItineraryItemsResponse(BaseModel):
 # class ScheduleItemCreate(ScheduleItemBase):
 #     pass
 
-# class ScheduleItemUpdate(BaseModel):
-#     startTime: Optional[datetime] = None
-#     endTime: Optional[datetime] = None
-#     location: Optional[str] = None
-#     description: Optional[str] = None
+class ScheduleItemUpdate(BaseModel):
+    startTime: Optional[datetime] = None
+    endTime: Optional[datetime] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
 
 # class ScheduleItemResponse(ScheduleItemBase):
 #     id: int
@@ -420,7 +501,7 @@ class ItineraryItemsResponse(BaseModel):
 #     createdAt: datetime
 
 #     class Config:
-#         orm_mode = True
+#         from_attributes = True
 
 # # Base schemas - Room Item
 # class RoomItemBase(BaseModel):
@@ -452,7 +533,7 @@ class ItineraryItemsResponse(BaseModel):
 #     isPaid: bool = False
 
 #     class Config:
-#         orm_mode = True
+#         from_attributes = True
 
 # # Base schemas - Ride Booking
 # class RideBookingBase(BaseModel):
@@ -489,7 +570,7 @@ class ItineraryItemsResponse(BaseModel):
 #     isReviewed: bool = False
 
 #     class Config:
-#         orm_mode = True
+#         from_attributes = True
 
 # # Base schemas - Itinerary
 # class ItineraryBase(BaseModel):
@@ -517,7 +598,7 @@ class ItineraryItemsResponse(BaseModel):
 #     destinations: List[str] = []
 
 #     class Config:
-#         orm_mode = True
+#         from_attributes = True
 
 # class ItineraryDetailResponse(ItineraryResponse):
 #     scheduleItems: List[ScheduleItemResponse] = []
@@ -525,7 +606,7 @@ class ItineraryItemsResponse(BaseModel):
 #     rideBookings: List[RideBookingResponse] = []
 
 #     class Config:
-#         orm_mode = True
+#         from_attributes = True
 
 # # Combined response for items
 # class ItineraryItemsResponse(BaseModel):
@@ -534,7 +615,7 @@ class ItineraryItemsResponse(BaseModel):
 #     ride_bookings: List[RideBookingResponse] = []
 
 #     class Config:
-#         orm_mode = True
+#         from_attributes = True
 
 # # Review schemas
 # class ReviewBase(BaseModel):
@@ -552,28 +633,28 @@ class ItineraryItemsResponse(BaseModel):
 #     customerName: Optional[str] = None
 
 #     class Config:
-#         orm_mode = True
+#         from_attributes = True
 
-# # Room schemas for selection
-# class RoomBase(BaseModel):
-#     type: str
-#     roomCapacity: int
-#     basePrice: float
+# Room schemas for selection
+class CustomerRoomBase(BaseModel):
+    type: str
+    roomCapacity: int
+    basePrice: float
     
-# class RoomResponse(RoomBase):
-#     id: int
-#     hotelId: int
-#     totalNumber: int
-#     # Joined fields
-#     hotelName: Optional[str] = None
-#     city: Optional[str] = None
+class CustomerRoomResponse(CustomerRoomBase):
+    id: int
+    hotelId: int
+    totalNumber: int
+    # Joined fields
+    hotelName: Optional[str] = None
+    city: Optional[str] = None
     
-#     class Config:
-#         orm_mode = True
+    class Config:
+        from_attributes = True
 
-# class AvailableRoomResponse(RoomResponse):
-#     image: Optional[str] = None
-#     amenities: List[str] = []
+class CustomerAvailableRoomResponse(CustomerRoomResponse):
+    image: Optional[str] = None
+    amenities: List[str] = []
     
-#     class Config:
-#         orm_mode = True
+    class Config:
+        from_attributes = True
