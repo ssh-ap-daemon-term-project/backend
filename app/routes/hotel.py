@@ -320,17 +320,17 @@ def check_room_type_exists(db: Session, hotel_id: int, room_type: str):
 def create_room(db: Session, room_data: schemas.RoomCreate):
     """Create a new room"""
     # Create arrays for the room data - 60 days
-    price_array = [room_data.basePrice] * 60
-    available_array = [room_data.totalNumber] * 60
-    booked_array = [0] * 60
+    # price_array = [room_data.basePrice] * 60
+    # available_array = [room_data.totalNumber] * 60
+    # booked_array = [0] * 60
     
     new_room = models.Room(
         type=room_data.type,
         roomCapacity=room_data.roomCapacity,
         totalNumber=room_data.totalNumber,
-        availableNumber=available_array,
-        bookedNumber=booked_array,
-        price=price_array,
+        # availableNumber=available_array,
+        # bookedNumber=booked_array,
+        # price=price_array,
         hotelId=room_data.hotelId,
         basePrice=room_data.basePrice
     )
@@ -393,6 +393,30 @@ def get_room_overview(user_id: int = 1, db: Session = Depends(get_db)):
     
     if not rooms:
         return []
+
+    # count the number of rooms booked for each room type for each day till next 60 days
+    today = datetime.utcnow().date()
+    formatted_rooms = []
+    
+    # Process each room
+    for room in rooms:
+        # Initialize arrays for 60 days
+        booked_count = [0] * 60
+        
+        # Get all bookings for this room
+        bookings = db.query(models.RoomBooking).filter(models.RoomBooking.roomId == room.id).all()
+        
+        # Count bookings for each day in the next 60 days
+        for booking in bookings:
+            for day_offset in range(60):
+                current_date = today + timedelta(days=day_offset)
+                # Check if this date falls within the booking period
+                if booking.startDate.date() <= current_date <= booking.endDate.date():
+                    booked_count[day_offset] += 1
+        
+        # Calculate available rooms for each day
+        available_count = [room.totalNumber - booked_count[i] for i in range(60)]
+    
     
     # Step 3: Format response to match frontend expected structure
     formatted_rooms = []
@@ -402,9 +426,9 @@ def get_room_overview(user_id: int = 1, db: Session = Depends(get_db)):
             "total_no": room.totalNumber,
             "type": room.type.capitalize(),  # Capitalize for display
             "room_capacity": room.roomCapacity,
-            "no_booked": room.bookedNumber,
-            "no_available": room.availableNumber,
-            "price": room.price,
+            # "no_booked": room.bookedNumber,
+            "no_available": available_count,
+            "price": room.basePrice,
             "hotelfk": room.hotelId
         }
         formatted_rooms.append(formatted_room)
