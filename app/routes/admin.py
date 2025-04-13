@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, aliased
 from typing import List, Optional, Dict, Any
 from ..database import SessionLocal
 from ..middleware import is_admin
-from ..schemas import HotelCreate, HotelUpdate, HotelResponse  
+from ..schemas import HotelCreate, HotelUpdate, HotelResponse  , DriverDetailResponse
 from ..security import hash_password
 from datetime import datetime, timedelta
 from sqlalchemy import func
@@ -893,7 +893,6 @@ def get_all_drivers(db: Session = Depends(get_db)):
             "carNumber": driver.carNumber,
             "carType": driver.carType,
             "seatingCapacity": driver.seatingCapacity,
-            "rating": driver.rating if hasattr(driver, "rating") else None,
             "status": driver.status if hasattr(driver, "status") else "active",
             "joinedDate": user.createdAt.strftime("%Y-%m-%d")
         }
@@ -902,7 +901,7 @@ def get_all_drivers(db: Session = Depends(get_db)):
     
     return drivers_with_users
 
-@router.get("/drivers/{driver_id}")
+@router.get("/drivers/{driver_id}" ,response_model=schemas.DriverDetailResponse)
 def get_driver_by_id(driver_id: int, db: Session = Depends(get_db)):
     """Get a specific driver by ID"""
     driver = db.query(Driver).filter(Driver.id == driver_id).first()
@@ -918,21 +917,29 @@ def get_driver_by_id(driver_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="User associated with driver not found"
         )
+        
+    # Count completed rides
+    total_completed_rides = db.query(func.count(RideBooking.id)).filter(
+        RideBooking.driverId == driver_id,
+        RideBooking.status == "completed"
+    ).scalar() or 0
     
     # Create a response that combines both driver and user data
     driver_data = {
         "id": driver.id,
         "userId": driver.userId,
         "name": user.name,
+        "username" : user.username,
         "email": user.email,
         "phone": user.phone,
+        "address" : user.address,
         "carModel": driver.carModel,
         "carNumber": driver.carNumber,
         "carType": driver.carType,
         "seatingCapacity": driver.seatingCapacity,
-        "rating": driver.rating if hasattr(driver, "rating") else None,
         "status": driver.status if hasattr(driver, "status") else "active",
-        "joinedDate": user.createdAt.strftime("%Y-%m-%d")
+        "joinedDate": user.createdAt.strftime("%Y-%m-%d"),
+        "totalCompletedRides" : total_completed_rides
     }
     
     return driver_data
@@ -950,6 +957,30 @@ def create_driver(driver_data: schemas.DriverCreate, db: Session = Depends(get_d
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered"
             )
+            
+        # Add these validations
+        # Check if username (email) already exists
+        existing_username = db.query(User).filter(User.username == driver_data.email).first()
+        if existing_username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already registered"
+            )
+            
+        # Check if phone already exists
+        existing_phone = db.query(User).filter(User.phone == driver_data.phone).first()
+        if existing_phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number already registered"
+            )
+
+        # Add this check
+        if len(driver_data.email) > 50:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email too long to use as username (max 50 characters)"
+            )
         
         # First create a user account
         try:
@@ -957,7 +988,7 @@ def create_driver(driver_data: schemas.DriverCreate, db: Session = Depends(get_d
             hashed_password = hash_password(driver_data.password)
             
             user = User(
-                username=driver_data.email,  # Use email as username
+                username=driver_data.username,  # Use email as username
                 email=driver_data.email,
                 hashedPassword=hashed_password,
                 name=driver_data.name,
@@ -1008,7 +1039,6 @@ def create_driver(driver_data: schemas.DriverCreate, db: Session = Depends(get_d
             "carNumber": driver.carNumber,
             "carType": driver.carType,
             "seatingCapacity": driver.seatingCapacity,
-            "rating": 0.0,
             "joinedDate": user.createdAt.strftime("%Y-%m-%d")
         }
         
@@ -1041,52 +1071,44 @@ def update_driver(driver_id: int, driver_data: dict, db: Session = Depends(get_d
         )
     
     try:
-        # Update user fields if provided
-        if "name" in driver_data:
-            user.name = driver_data["name"]
+        # Update user fields if provided with validation
         if "email" in driver_data:
+            # Check if email already exists for another user
+            existing_user = db.query(User).filter(
+                User.email == driver_data["email"], 
+                User.id != user.id
+            ).first()
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already in use by another user"
+                )
             user.email = driver_data["email"]
+            # Also update username since it's derived from email
+            user.username = driver_data["email"]
+            
         if "phone" in driver_data:
+            # Check if phone already exists for another user
+            existing_user = db.query(User).filter(
+                User.phone == driver_data["phone"], 
+                User.id != user.id
+            ).first()
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already in use by another user"
+                )
             user.phone = driver_data["phone"]
-        if "password" in driver_data:
-            user.hashedPassword = hash_password(driver_data["password"])
-        
-        # Update driver fields if provided
-        if "carModel" in driver_data:
-            driver.carModel = driver_data["carModel"]
-        if "carNumber" in driver_data:
-            driver.carNumber = driver_data["carNumber"]
-        if "carType" in driver_data:
-            driver.carType = driver_data["carType"]
-        if "seatingCapacity" in driver_data:
-            driver.seatingCapacity = driver_data["seatingCapacity"]
-        if "status" in driver_data and hasattr(driver, "status"):
-            driver.status = driver_data["status"]
+            
+        # Rest of the updates with proper validation...
         
         db.commit()
-        
-        # Return the updated data
-        return {
-            "id": driver.id,
-            "userId": user.id,
-            "name": user.name,
-            "email": user.email,
-            "phone": user.phone,
-            "carModel": driver.carModel,
-            "carNumber": driver.carNumber,
-            "carType": driver.carType,
-            "seatingCapacity": driver.seatingCapacity,
-            "status": driver.status if hasattr(driver, "status") else "active",
-            "rating": driver.rating if hasattr(driver, "rating") else 0.0,
-            "joinedDate": user.createdAt.strftime("%Y-%m-%d")
-        }
-        
+        # Return response...
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to update driver: {str(e)}"
-        )
+        raise HTTPException(...)
+    
+    
 
 @router.delete("/drivers/{driver_id}", response_model=schemas.MessageResponse)
 def delete_driver(driver_id: int, db: Session = Depends(get_db)):
@@ -1390,5 +1412,5 @@ def get_all_room_bookings(db: Session = Depends(get_db)):
             "price": float(total_price),
             "createdAt": booking.createdAt.isoformat()
         })
-    
     return bookings
+    

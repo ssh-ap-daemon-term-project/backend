@@ -262,6 +262,7 @@ class ReviewResponse(BaseModel):
         from_attributes = True
 
 class DriverCreate(BaseModel):
+    username : str
     name: str
     email: EmailStr
     password: str
@@ -338,6 +339,25 @@ class ItineraryItemsResponse(BaseModel):
     
     class Config:
         from_attributes = True
+        
+    
+class DriverDetailResponse(BaseModel):
+    id: int
+    name: str
+    username : str
+    email: str
+    phone: str
+    address: Optional[str]
+    carModel: str
+    carNumber: str
+    carType: str
+    seatingCapacity: int
+    status: str
+    joinedDate: str
+    totalCompletedRides: int
+    
+    
+    
 
 # from pydantic import BaseModel, Field, EmailStr
 # from typing import List, Optional, Dict, Any, Union
