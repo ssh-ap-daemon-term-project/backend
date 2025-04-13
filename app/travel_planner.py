@@ -1,153 +1,250 @@
-from textwrap import dedent
-from typing import List, Optional
+import os
+import re
+import time
+import json
+import requests
+from typing import List, Dict, Any, Optional
+
+from dotenv import load_dotenv
 from agno.agent import Agent
 from agno.models.google import Gemini
-from agno.team.team import Team
-from agno.tools.googlesearch import GoogleSearchTools
-from agno.tools.duckduckgo import DuckDuckGoTools
-from dotenv import load_dotenv
 
-class TravelAgent:
-    """Base class for all travel-related agents"""
+# Import the SQLDatabaseQueryProcessor from your existing file
+from llmsql import SQLDatabaseQueryProcessor
+
+load_dotenv()
+
+
+# here i need to make two functions one that uses the query along with some prompt to get the lat long of the hotel using the llmsql.py ka functions and another a websearch agent to do websearch and suggest locations inproxitmity to that hotel
+
+def get_lat_long_of_hotel(query: str) -> Optional[Dict[str, float]]:
+    """
+    Query the database to get the latitude and longitude of a hotel and extract the values.
     
-    def __init__(self, name: str, role: str, instructions: str, 
-                 model_id: str = "gemini-2.0-flash-exp", 
-                 search: bool = False,
-                 tools: Optional[List] = None):
-        """Initialize a travel agent with specific role and instructions"""
-        self.name = name
-        self.role = role
-        self.instructions = dedent(instructions)
+    Args:
+        query: Natural language query about a hotel
         
-        if tools is None:
-            tools = []
+    Returns:
+        Dictionary with 'latitude' and 'longitude' if found, None otherwise
+    """
+    # Create an instance of the SQLDatabaseQueryProcessor
+    db_processor = SQLDatabaseQueryProcessor()
+    
+    # Modify the query to specifically ask for latitude and longitude
+    hotel_query = "if the user asks for best places to visit from the hotel_name then give the latitude and longitude of the hotel name in the query. " + query
+    
+    # Query the database to get the latitude and longitude of the hotel
+    results = db_processor.process_query(hotel_query)
+    print("Database results:", results)
+    
+    # Check if we got results
+    if not results or len(results) == 0:
+        print("No results found for the hotel")
+        return None
+    
+    # Try to extract latitude and longitude from the results
+    try:
+        # Check if the first result has latitude and longitude fields
+        first_result = results[0]
+        if 'latitude' in first_result and 'longitude' in first_result:
+            return {
+                'latitude': float(first_result['latitude']),
+                'longitude': float(first_result['longitude'])
+            }
+        else:
+            # Process the results using a more flexible approach
+            # Create an agent to extract the coordinates from the result
+            agent = Agent(
+                model=Gemini(id="gemini-2.0-flash"),
+                instructions="""
+                You are an expert at extracting geographical coordinates from data.
+                Given a set of database results about a hotel, extract the latitude and longitude.
+                Return ONLY a JSON object with 'latitude' and 'longitude' as floating point numbers.
+                Example output: {"latitude": 19.0760, "longitude": 72.8777}
+                If coordinates cannot be found, return {"latitude": null, "longitude": null}
+                """
+            )
             
-        self.agent = Agent(
-            name=name,
-            role=role,
-            model=Gemini(id=model_id, search=search),
-            tools=tools,
-            add_name_to_instructions=True,
-            instructions=self.instructions,
-        )
-
-
-class DestinationResearcher(TravelAgent):
-    """Agent specialized in researching travel destinations"""
+            # Convert results to a string and pass to the agent
+            result_str = json.dumps(results, default=str)
+            response = agent.run(f"Extract latitude and longitude from these results: {result_str}")
+            
+            # Parse the response as JSON
+            coordinates = json.loads(response.content)
+            
+            # Validate the parsed coordinates
+            if coordinates and 'latitude' in coordinates and 'longitude' in coordinates:
+                if coordinates['latitude'] is not None and coordinates['longitude'] is not None:
+                    return {
+                        'latitude': float(coordinates['latitude']),
+                        'longitude': float(coordinates['longitude'])
+                    }
+            
+            print("Could not extract coordinates from results")
+            return None
+            
+    except Exception as e:
+        print(f"Error extracting coordinates: {str(e)}")
+        return None    
     
-    def __init__(self):
-        super().__init__(
-            name="Destination Researcher",
-            role="Research travel destinations and attractions",
-            tools=[GoogleSearchTools(), DuckDuckGoTools()],
-            instructions="""
-                You are a destination researcher specializing in travel information.
-                You will research potential travel destinations based on the traveler's preferences.
-                Find information about popular attractions, local culture, best times to visit,
-                and unique experiences in each location.
-                Provide balanced information about both tourist hotspots and off-the-beaten-path experiences.
-            """
-        )
-
-
-class AccommodationExpert(TravelAgent):
-    """Agent specialized in finding and evaluating accommodations"""
     
-    def __init__(self):
-        super().__init__(
-            name="Accommodation Expert",
-            role="Find and evaluate accommodation options",
-            tools=[GoogleSearchTools(), DuckDuckGoTools()],
-            instructions="""
-                You are an accommodation expert.
-                You will research and recommend accommodation options based on the traveler's preferences and budget.
-                Consider hotels, vacation rentals, hostels, and unique lodging options.
-                Evaluate options based on location, amenities, reviews, price, and accessibility.
-                Provide specific recommendations with brief explanations of their advantages.
-            """
-        )
-
-
-class TransportationPlanner(TravelAgent):
-    """Agent specialized in planning transportation"""
     
-    def __init__(self):
-        super().__init__(
-            name="Transportation Planner",
-            role="Plan transportation between and within destinations",
-            tools=[GoogleSearchTools()],
-            instructions="""
-                You are a transportation planning specialist.
-                You will research and recommend transportation options between destinations and for local travel.
-                Consider flights, trains, buses, car rentals, and public transportation.
-                Evaluate options based on cost, convenience, travel time, and environmental impact.
-                Provide specific recommendations with estimated travel times and costs.
-            """
-        )
 
-
-class LocalExperienceCurator(TravelAgent):
-    """Agent specialized in curating local experiences"""
+def websearch_agent(coordinates: Dict[str, float], hotel_name: str = "", days: int = 3) -> List[Dict[str, Any]]:
+    """
+    Find locations in proximity to given coordinates and create a detailed itinerary.
     
-    def __init__(self):
-        super().__init__(
-            name="Local Experience Curator",
-            role="Curate authentic local experiences and activities",
-            tools=[DuckDuckGoTools()],
-            instructions="""
-                You are a local experience curator.
-                You will research and recommend authentic local experiences, food, and activities.
-                Focus on unique cultural experiences, local cuisine, festivals, and events.
-                Consider the traveler's interests and preferences when making recommendations.
-                Provide specific recommendations with brief explanations of their cultural significance.
-            """
-        )
-
-
-class TravelPlanningTeam:
-    """Manages a team of travel planning agents"""
-    
-    def __init__(self):
-        load_dotenv()
+    Args:
+        coordinates: Dictionary with 'latitude' and 'longitude' values
+        hotel_name: Optional name of the hotel for context
+        days: Number of days for the itinerary (default: 3)
         
-        self.destination_researcher = DestinationResearcher()
-        self.accommodation_expert = AccommodationExpert()
-        self.transportation_planner = TransportationPlanner()
-        self.local_experience_curator = LocalExperienceCurator()
-        
-        self.team = Team(
-            name="Travel Planning Team",
-            mode="collaborate",
-            model=Gemini(id="gemini-1.5-flash"),
-            members=[
-                self.destination_researcher.agent,
-                self.accommodation_expert.agent,
-                self.transportation_planner.agent,
-                self.local_experience_curator.agent,
-            ],
-            instructions=[
-                "You are a travel planning coordinator.",
-                "Coordinate the team to create a comprehensive travel plan based on the traveler's preferences.",
-                "Ensure all aspects of the trip (destination, accommodation, transportation, activities) are addressed.",
-                "Synthesize the team's input into a cohesive travel itinerary.",
-                "You have to stop the discussion when you think the team has developed a complete travel plan."
-            ],
-            success_criteria="A comprehensive travel plan has been created that meets the traveler's preferences and constraints.",
-            share_member_interactions=True,
-            markdown=False,
-        )
+    Returns:
+        List of daily itinerary plans with activities and recommendations
+    """
+    # Extract number of days from the query if provided
     
-    def generate_travel_plan(self, query: str, stream: bool = True) -> str:
-        """Generate a travel plan based on the user's query"""
-        answer = self.team.run(
-            message=query,
-        )
-        return answer.content
+    # Create an instance of the Agent for web search and itinerary planning
+    agent = Agent(
+        model=Gemini(id="gemini-2.0-flash"),
+        instructions="""
+        You are a professional travel itinerary planner. When given coordinates and a hotel name, 
+        create a comprehensive day-by-day travel plan for a tourist.
 
-
-if __name__ == "__main__":
-    travel_planner = TravelPlanningTeam()    
-    result = travel_planner.generate_travel_plan(
-        query="Tell me about nearest tourist locations of 28.7 degrees N and 77.1 degrees E",
+        For each day in the itinerary:
+        1. Recommend 2-4 nearby attractions or activities with brief descriptions
+        2. Suggest breakfast, lunch, and dinner options (include local specialties when possible)
+        3. Include approximate travel times between locations
+        4. Add helpful tips specific to each location (best time to visit, what to wear, etc.)
+        
+        Structure your response as a valid JSON array of day objects with this format:
+        [
+          {
+            "day": 1,
+            "title": "Day 1: Exploring Historical Sites",
+            "activities": [
+              {
+                "time": "9:00 AM - 11:30 AM",
+                "name": "Activity Name",
+                "description": "Brief description of the activity",
+                "tips": "Helpful tips for visitors"
+              },
+              {...more activities...}
+            ],
+            "meals": {
+              "breakfast": "Breakfast recommendation",
+              "lunch": "Lunch recommendation",
+              "dinner": "Dinner recommendation"
+            },
+            "travel_tips": "Overall tips for the day"
+          },
+          {...more days...}
+        ]
+        
+        Ensure each recommendation is specific, realistic, and appropriate for the actual location.
+        Research the area around the coordinates to find genuine attractions and restaurants.
+        
+        IMPORTANT: Your entire response must be valid JSON - nothing else. No introduction or conclusion text.
+        """
     )
-    print(result)
+
+    # Create the query with the coordinates and days
+    search_query = f"Create a {days}-day travel itinerary for a tourist staying at coordinates {coordinates['latitude']}, {coordinates['longitude']}"
+    if hotel_name:
+        search_query += f" (at {hotel_name})"
+    
+    # Run the agent with the query
+    response = agent.run(search_query)
+    
+    try:
+        # Parse the response to extract the itinerary
+        itinerary = json.loads(response.content)
+        return itinerary
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON response: {e}")
+        print(f"Response content preview: {response.content[:200]}...")
+        
+        # Try to extract JSON from the text response
+        json_pattern = r'\[\s*\{.*\}\s*\]'
+        match = re.search(json_pattern, response.content, re.DOTALL)
+        if match:
+            try:
+                itinerary = json.loads(match.group(0))
+                return itinerary
+            except json.JSONDecodeError:
+                pass
+                
+        # Fallback: Use LLM to fix the JSON
+        try:
+            fix_agent = Agent(
+                model=Gemini(id="gemini-2.0-flash"),
+                instructions="""
+                You are a JSON formatting expert. Your task is to convert the given text 
+                to a valid JSON array representing a travel itinerary.
+                
+                The output should be an array of day objects, each containing:
+                - day (number)
+                - title (string)
+                - activities (array of activity objects)
+                - meals (object with breakfast, lunch, dinner)
+                - travel_tips (string)
+                
+                Fix any JSON syntax errors and ensure the result is properly formatted.
+                Return ONLY the fixed JSON with no additional text.
+                """
+            )
+            fixed_response = fix_agent.run(f"Fix this JSON for a travel itinerary: {response.content}")
+            return json.loads(fixed_response.content)
+        except Exception as fix_error:
+            print(f"Failed to fix JSON: {fix_error}")
+            
+        # Return a basic fallback itinerary if all else fails
+        return [
+            {
+                "day": 1,
+                "title": "Day 1: Exploring the Area",
+                "activities": [
+                    {
+                        "time": "10:00 AM - 12:00 PM",
+                        "name": "Local Sightseeing",
+                        "description": "Explore the area around your hotel",
+                        "tips": "Ask the hotel concierge for recommendations"
+                    }
+                ],
+                "meals": {
+                    "breakfast": "Hotel breakfast",
+                    "lunch": "Try a local restaurant",
+                    "dinner": "Hotel restaurant or nearby dining"
+                },
+                "travel_tips": "Local transportation options may be available at your hotel"
+            }
+        ]    
+    
+    
+if __name__ == "__main__":
+    # Example query
+    query = "where can i visit from The Oberoi Amarvilas for 3 days"
+    
+    # Extract hotel name from query
+    hotel_name_match = re.search(r'near the (.*?)(?:in|\.| for)', query)
+    hotel_name = hotel_name_match.group(1).strip() if hotel_name_match else ""
+    
+    # Extract number of days if mentioned
+    days_match = re.search(r'for (\d+) days?', query)
+    days = int(days_match.group(1)) if days_match else 3  # Default to 3 days
+    
+    # Get latitude and longitude of the hotely
+    lat_long = get_lat_long_of_hotel(query)
+    print(f"Latitude and Longitude of the hotel: {lat_long}")
+    
+    # Get itinerary using web search with the coordinates
+    if lat_long:
+        itinerary = websearch_agent(lat_long, hotel_name, days)
+        print(f"Created {len(itinerary)} day itinerary:")
+        for day_plan in itinerary:
+            print(f"\n{day_plan['title']}")
+            for activity in day_plan['activities']:
+                print(f"  • {activity['time']}: {activity['name']}")
+            print(f"  Meals: Breakfast at {day_plan['meals']['breakfast']}, Dinner at {day_plan['meals']['dinner']}")
+    else:
+        print("Could not find hotel coordinates to create an itinerary")
