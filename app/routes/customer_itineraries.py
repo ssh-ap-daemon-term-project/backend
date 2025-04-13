@@ -87,56 +87,155 @@ def get_itineraries(
     
     return itineraries
 
-@router.get("/{id}", response_model=schemas.ItineraryResponse)
+# Available rooms endpoint
+@router.get("/available-rooms", response_model=List[schemas.CustomerAvailableRoomResponse])
+async def get_available_rooms(
+    start_date: datetime,
+    end_date: datetime,
+    city: Optional[str] = None,
+    guests: int = 1,
+    current_user: models.User = Depends(is_customer),
+    db: Session = Depends(get_db)
+):
+    # Base query for rooms
+    query = db.query(models.Room).join(
+        models.Hotel,
+        models.Room.hotelId == models.Hotel.id
+    )
+    
+    # Apply filters
+    if city:
+        query = query.filter(models.Hotel.city == city)
+    
+    # Filter by capacity
+    query = query.filter(models.Room.roomCapacity >= guests)
+    
+    # Get all matching rooms
+    rooms = query.all()
+    
+    # For each room, check if it's available during the specified dates
+    # This would require checking bookings and room items
+    
+    # For this example, we'll return all rooms as available
+    available_rooms = []
+    
+    for room in rooms:
+        hotel = db.query(models.Hotel).filter(models.Hotel.id == room.hotelId).first()
+        hotel_user = db.query(models.User).filter(models.User.id == hotel.userId).first()
+        
+        # Create response
+        room_data = {
+            "id": room.id,
+            "hotelId": room.hotelId,
+            "type": room.type,
+            "roomCapacity": room.roomCapacity,
+            "basePrice": room.basePrice,
+            "totalNumber": room.totalNumber,
+            "hotelName": hotel_user.name,
+            "city": hotel.city,
+            "image": "/placeholder.svg?height=300&width=500",  # This would come from an assets table
+            "amenities": ["Free WiFi", "TV", "Air Conditioning"]  # This would come from a room_amenities table
+        }
+        
+        available_rooms.append(room_data)
+    
+    return available_rooms
+
+@router.get("/{id}", response_model=schemas.GetItineraryResponse)
 def get_itinerary(
     id: int,
     current_user: models.User = Depends(is_customer),
     db: Session = Depends(get_db)
 ):
-    # Get the customer profile
     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
     if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Customer profile not found"
-        )
-    
-    # Get the itinerary with room items and schedule items
+        raise HTTPException(status_code=404, detail="Customer profile not found")
+
     itinerary = db.query(models.Itinerary)\
-        .filter(
-            models.Itinerary.id == id,
-            models.Itinerary.customerId == customer.id
-        )\
+        .filter(models.Itinerary.id == id, models.Itinerary.customerId == customer.id)\
         .options(
-            joinedload(models.Itinerary.roomItems),
-            joinedload(models.Itinerary.scheduleItems)
+            joinedload(models.Itinerary.roomItems)
+                .joinedload(models.RoomItem.room)
+                .joinedload(models.Room.hotel)
+                .joinedload(models.Hotel.user),
+            joinedload(models.Itinerary.scheduleItems),
+            joinedload(models.Itinerary.rideBookings)
         )\
         .first()
-        
+
     if not itinerary:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Itinerary with ID {id} not found"
-        )
-    
-    # Calculate start and end dates
-    if itinerary.roomItems:
-        start_dates = [item.startDate for item in itinerary.roomItems]
-        if start_dates:
-            itinerary.startDate = min(start_dates)
-            
-        end_dates = [item.endDate for item in itinerary.roomItems]
-        if end_dates:
-            itinerary.endDate = max(end_dates)
-    
-    # Calculate destinations
+        raise HTTPException(status_code=404, detail=f"Itinerary with ID {id} not found")
+
+    # Prepare response manually
+    start_dates = []
+    end_dates = []
     destinations = set()
+
+    room_items = []
     for item in itinerary.roomItems:
-        if item.room and item.room.hotel:
-            destinations.add(item.room.hotel.city)
-    itinerary.destinations = list(destinations)
-    
-    return itinerary
+        if item.startDate:
+            start_dates.append(item.startDate)
+        if item.endDate:
+            end_dates.append(item.endDate)
+
+        hotel_user_name = (
+            item.room.hotel.user.name if item.room.hotel and item.room.hotel.user else "Unknown Hotel"
+        )
+
+        room_items.append({
+            "id": item.id,
+            "itineraryId": item.itineraryId,
+            "roomId": item.roomId,
+            "startDate": item.startDate,
+            "endDate": item.endDate,
+            "room": {
+                "id": item.room.id,
+                "hotelId": item.room.hotelId,
+                "type": item.room.type,
+                "roomCapacity": item.room.roomCapacity,
+                "basePrice": item.room.basePrice,
+                "totalNumber": item.room.totalNumber,
+                "hotel": {
+                    "id": item.room.hotel.id,
+                    "userId": item.room.hotel.userId,
+                    "name": hotel_user_name,
+                    "city": item.room.hotel.city,
+                    "address": item.room.hotel.address if hasattr(item.room.hotel, "address") else None,
+                    "description": item.room.hotel.description,
+                    "stars": None  # Set to None since your model has no 'stars' field
+                }
+            }
+        })
+
+        destinations.add(item.room.hotel.city)
+
+    # Build final response
+    response_data = {
+        "id": itinerary.id,
+        "customerId": itinerary.customerId,
+        "name": itinerary.name,
+        "numberOfPersons": itinerary.numberOfPersons,
+        "createdAt": itinerary.createdAt,
+        "startDate": min(start_dates) if start_dates else None,
+        "endDate": max(end_dates) if end_dates else None,
+        "destinations": list(destinations),
+        "roomItems": room_items,
+        "scheduleItems": [
+            {
+                "id": item.id,
+                "itineraryId": item.itineraryId,
+                "startTime": item.startTime,
+                "endTime": item.endTime,
+                "location": item.location,
+                "description": item.description,
+                "createdAt": item.createdAt
+            }
+            for item in itinerary.scheduleItems
+        ],
+        "rideBookings": []  # Add this if needed
+    }
+
+    return response_data
 
 @router.put("/{id}", response_model=schemas.ItineraryResponse)
 def update_itinerary(
@@ -225,9 +324,9 @@ def delete_itinerary(
     
     return None
 
-# @router.get("/{itinerary_id}/items", response_model=schemas.ItineraryItemsResponse)
+# @router.get("/{itineraryId}/items", response_model=schemas.ItineraryItemsResponse)
 # def get_itinerary_items(
-#     itinerary_id: int,
+#     itineraryId: int,
 #     current_user: models.User = Depends(is_customer),
 #     db: Session = Depends(get_db)
 # ):
@@ -241,23 +340,23 @@ def delete_itinerary(
     
 #     # Get the itinerary
 #     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
+#         models.Itinerary.id == itineraryId,
 #         models.Itinerary.customerId == customer.id
 #     ).first()
     
 #     if not itinerary:
 #         raise HTTPException(
 #             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
+#             detail=f"Itinerary with ID {itineraryId} not found"
 #         )
     
 #     # Get schedule items and room items
 #     schedule_items = db.query(models.ScheduleItem).filter(
-#         models.ScheduleItem.itineraryId == itinerary_id
+#         models.ScheduleItem.itineraryId == itineraryId
 #     ).all()
     
 #     room_items = db.query(models.RoomItem).filter(
-#         models.RoomItem.itineraryId == itinerary_id
+#         models.RoomItem.itineraryId == itineraryId
 #     ).all()
     
 #     # Return the combined response
@@ -272,9 +371,9 @@ def delete_itinerary(
 # )
 
 # # Schedule Items
-@router.post("/{itinerary_id}/schedule", response_model=schemas.ScheduleItemResponse)
+@router.post("/{itineraryId}/schedule", response_model=schemas.ScheduleItemResponse)
 async def add_schedule_item(
-    itinerary_id: int,
+    itineraryId: int,
     schedule_item: schemas.ScheduleItemCreate,
     current_user: models.User = Depends(is_customer),
     db: Session = Depends(get_db)
@@ -282,19 +381,19 @@ async def add_schedule_item(
     # Verify itinerary belongs to the current user
     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
     itinerary = db.query(models.Itinerary).filter(
-        models.Itinerary.id == itinerary_id,
+        models.Itinerary.id == itineraryId,
         models.Itinerary.customerId == customer.id
     ).first()
     
     if not itinerary:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Itinerary with ID {itinerary_id} not found"
+            detail=f"Itinerary with ID {itineraryId} not found"
         )
     
     # Create the schedule item
     new_schedule_item = models.ScheduleItem(
-        itineraryId=itinerary_id,
+        itineraryId=itineraryId,
         startTime=schedule_item.startTime,
         endTime=schedule_item.endTime,
         location=schedule_item.location,
@@ -307,263 +406,263 @@ async def add_schedule_item(
     
     return new_schedule_item
 
-# @router.put("/{itinerary_id}/schedule/{item_id}", response_model=schemas.ScheduleItemResponse)
-# async def update_schedule_item(
-#     itinerary_id: int,
-#     item_id: int,
-#     schedule_item: schemas.ScheduleItemUpdate,
-#     current_user: models.User = Depends(is_customer),
-#     db: Session = Depends(get_db)
-# ):
-#     # Verify itinerary belongs to the current user
-#     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
-#     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
-#         models.Itinerary.customerId == customer.id
-#     ).first()
+@router.put("/{itineraryId}/schedule/{item_id}", response_model=schemas.ScheduleItemResponse)
+async def update_schedule_item(
+    itineraryId: int,
+    item_id: int,
+    schedule_item: schemas.ScheduleItemUpdate,
+    current_user: models.User = Depends(is_customer),
+    db: Session = Depends(get_db)
+):
+    # Verify itinerary belongs to the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    itinerary = db.query(models.Itinerary).filter(
+        models.Itinerary.id == itineraryId,
+        models.Itinerary.customerId == customer.id
+    ).first()
     
-#     if not itinerary:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
-#         )
+    if not itinerary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Itinerary with ID {itineraryId} not found"
+        )
     
-#     # Get the schedule item
-#     item_query = db.query(models.ScheduleItem).filter(
-#         models.ScheduleItem.id == item_id,
-#         models.ScheduleItem.itinerary_id == itinerary_id
-#     )
+    # Get the schedule item
+    item_query = db.query(models.ScheduleItem).filter(
+        models.ScheduleItem.id == item_id,
+        models.ScheduleItem.itineraryId == itineraryId
+    )
     
-#     item = item_query.first()
-#     if not item:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Schedule item with ID {item_id} not found"
-#         )
+    item = item_query.first()
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Schedule item with ID {item_id} not found"
+        )
     
-#     # Update the schedule item
-#     update_data = schedule_item.dict(exclude_unset=True)
-#     for key, value in update_data.items():
-#         setattr(item, key, value)
+    # Update the schedule item
+    update_data = schedule_item.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(item, key, value)
     
-#     db.commit()
-#     db.refresh(item)
+    db.commit()
+    db.refresh(item)
     
-#     return item
+    return item
 
-# @router.delete("/{itinerary_id}/schedule/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-# async def delete_schedule_item(
-#     itinerary_id: int,
-#     item_id: int,
-#     current_user: models.User = Depends(is_customer),
-#     db: Session = Depends(get_db)
-# ):
-#     # Verify itinerary belongs to the current user
-#     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
-#     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
-#         models.Itinerary.customerId == customer.id
-#     ).first()
+@router.delete("/{itineraryId}/schedule/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_schedule_item(
+    itineraryId: int,
+    item_id: int,
+    current_user: models.User = Depends(is_customer),
+    db: Session = Depends(get_db)
+):
+    # Verify itinerary belongs to the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    itinerary = db.query(models.Itinerary).filter(
+        models.Itinerary.id == itineraryId,
+        models.Itinerary.customerId == customer.id
+    ).first()
     
-#     if not itinerary:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
-#         )
+    if not itinerary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Itinerary with ID {itineraryId} not found"
+        )
     
-#     # Get the schedule item
-#     item_query = db.query(models.ScheduleItem).filter(
-#         models.ScheduleItem.id == item_id,
-#         models.ScheduleItem.itinerary_id == itinerary_id
-#     )
+    # Get the schedule item
+    item_query = db.query(models.ScheduleItem).filter(
+        models.ScheduleItem.id == item_id,
+        models.ScheduleItem.itineraryId == itineraryId
+    )
     
-#     if not item_query.first():
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Schedule item with ID {item_id} not found"
-#         )
+    if not item_query.first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Schedule item with ID {item_id} not found"
+        )
     
-#     # Delete the schedule item
-#     item_query.delete(synchronize_session=False)
-#     db.commit()
+    # Delete the schedule item
+    item_query.delete(synchronize_session=False)
+    db.commit()
     
-#     return None
+    return None
 
-# # Room Items
-# @router.post("/{itinerary_id}/rooms", response_model=schemas.RoomItemResponse)
-# async def add_room_to_itinerary(
-#     itinerary_id: int,
-#     room_item: schemas.RoomItemCreate,
-#     current_user: models.User = Depends(is_customer),
-#     db: Session = Depends(get_db)
-# ):
-#     # Verify itinerary belongs to the current user
-#     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
-#     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
-#         models.Itinerary.customerId == customer.id
-#     ).first()
+# Room Items
+@router.post("/{itineraryId}/rooms", response_model=schemas.RoomItemResponse)
+async def add_room_to_itinerary(
+    itineraryId: int,
+    room_item: schemas.RoomItemCreate,
+    current_user: models.User = Depends(is_customer),
+    db: Session = Depends(get_db)
+):
+    # Verify itinerary belongs to the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    itinerary = db.query(models.Itinerary).filter(
+        models.Itinerary.id == itineraryId,
+        models.Itinerary.customerId == customer.id
+    ).first()
     
-#     if not itinerary:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
-#         )
+    if not itinerary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Itinerary with ID {itineraryId} not found"
+        )
     
-#     # Verify room exists
-#     room = db.query(models.Room).filter(models.Room.id == room_item.roomId).first()
-#     if not room:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Room with ID {room_item.roomId} not found"
-#         )
+    # Verify room exists
+    room = db.query(models.Room).filter(models.Room.id == room_item.roomId).first()
+    if not room:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Room with ID {room_item.roomId} not found"
+        )
     
-#     # Check room availability
-#     # This would require checking against existing bookings
+    # Check room availability
+    # This would require checking against existing bookings
     
-#     # Create the room item
-#     new_room_item = models.RoomItem(
-#         itinerary_id=itinerary_id,
-#         roomId=room_item.roomId,
-#         startDate=room_item.startDate,
-#         endDate=room_item.endDate
-#     )
+    # Create the room item
+    new_room_item = models.RoomItem(
+        itineraryId=itineraryId,
+        roomId=room_item.roomId,
+        startDate=room_item.startDate,
+        endDate=room_item.endDate
+    )
     
-#     db.add(new_room_item)
-#     db.commit()
-#     db.refresh(new_room_item)
+    db.add(new_room_item)
+    db.commit()
+    db.refresh(new_room_item)
     
-#     # Fetch additional information
-#     hotel = db.query(models.Hotel).filter(models.Hotel.id == room.hotelId).first()
-#     hotel_user = db.query(models.User).filter(models.User.id == hotel.userId).first()
+    # Fetch additional information
+    hotel = db.query(models.Hotel).filter(models.Hotel.id == room.hotelId).first()
+    hotel_user = db.query(models.User).filter(models.User.id == hotel.userId).first()
     
-#     # Create response with extended information
-#     response = {
-#         "id": new_room_item.id,
-#         "itinerary_id": new_room_item.itinerary_id,
-#         "roomId": new_room_item.roomId,
-#         "startDate": new_room_item.startDate,
-#         "endDate": new_room_item.endDate,
-#         "createdAt": new_room_item.createdAt,
-#         "hotelName": hotel_user.name if hotel_user else "Unknown Hotel",
-#         "roomName": f"{room.type.capitalize()} Room",
-#         "roomType": room.type,
-#         "city": hotel.city,
-#         "pricePerNight": room.basePrice,
-#         "capacity": room.roomCapacity,
-#         "isPaid": False
-#     }
+    # Create response with extended information
+    response = {
+        "id": new_room_item.id,
+        "itineraryId": new_room_item.itineraryId,
+        "roomId": new_room_item.roomId,
+        "startDate": new_room_item.startDate,
+        "endDate": new_room_item.endDate,
+        "createdAt": new_room_item.createdAt,
+        "hotelName": hotel_user.name if hotel_user else "Unknown Hotel",
+        "roomName": f"{room.type.capitalize()} Room",
+        "roomType": room.type,
+        "city": hotel.city,
+        "pricePerNight": room.basePrice,
+        "capacity": room.roomCapacity,
+        "isPaid": False
+    }
     
-#     return response
+    return response
 
-# @router.put("/{itinerary_id}/rooms/{item_id}", response_model=schemas.RoomItemResponse)
-# async def update_room_dates(
-#     itinerary_id: int,
-#     item_id: int,
-#     room_update: schemas.RoomItemUpdate,
-#     current_user: models.User = Depends(is_customer),
-#     db: Session = Depends(get_db)
-# ):
-#     # Verify itinerary belongs to the current user
-#     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
-#     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
-#         models.Itinerary.customerId == customer.id
-#     ).first()
+@router.put("/{itineraryId}/rooms/{item_id}", response_model=schemas.UpdateItineraryRoomItemResponse)
+async def update_room_dates(
+    itineraryId: int,
+    item_id: int,
+    room_update: schemas.RoomItemUpdate,
+    current_user: models.User = Depends(is_customer),
+    db: Session = Depends(get_db)
+):
+    # Verify itinerary belongs to the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    itinerary = db.query(models.Itinerary).filter(
+        models.Itinerary.id == itineraryId,
+        models.Itinerary.customerId == customer.id
+    ).first()
     
-#     if not itinerary:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
-#         )
+    if not itinerary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Itinerary with ID {itineraryId} not found"
+        )
     
-#     # Get the room item
-#     room_item_query = db.query(models.RoomItem).filter(
-#         models.RoomItem.id == item_id,
-#         models.RoomItem.itinerary_id == itinerary_id
-#     )
+    # Get the room item
+    room_item_query = db.query(models.RoomItem).filter(
+        models.RoomItem.id == item_id,
+        models.RoomItem.itineraryId == itineraryId
+    )
     
-#     room_item = room_item_query.first()
-#     if not room_item:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Room item with ID {item_id} not found"
-#         )
+    room_item = room_item_query.first()
+    if not room_item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Room item with ID {item_id} not found"
+        )
     
-#     # Update the dates
-#     update_data = room_update.dict(exclude_unset=True)
-#     for key, value in update_data.items():
-#         setattr(room_item, key, value)
+    # Update the dates
+    update_data = room_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(room_item, key, value)
     
-#     db.commit()
-#     db.refresh(room_item)
+    db.commit()
+    db.refresh(room_item)
     
-#     # Get additional information for the response
-#     room = db.query(models.Room).filter(models.Room.id == room_item.roomId).first()
-#     hotel = db.query(models.Hotel).filter(models.Hotel.id == room.hotelId).first()
-#     hotel_user = db.query(models.User).filter(models.User.id == hotel.userId).first()
+    # Get additional information for the response
+    room = db.query(models.Room).filter(models.Room.id == room_item.roomId).first()
+    hotel = db.query(models.Hotel).filter(models.Hotel.id == room.hotelId).first()
+    hotel_user = db.query(models.User).filter(models.User.id == hotel.userId).first()
     
-#     # Create response with extended information
-#     response = {
-#         "id": room_item.id,
-#         "itinerary_id": room_item.itinerary_id,
-#         "roomId": room_item.roomId,
-#         "startDate": room_item.startDate,
-#         "endDate": room_item.endDate,
-#         "createdAt": room_item.createdAt,
-#         "hotelName": hotel_user.name if hotel_user else "Unknown Hotel",
-#         "roomName": f"{room.type.capitalize()} Room",
-#         "roomType": room.type,
-#         "city": hotel.city,
-#         "pricePerNight": room.basePrice,
-#         "capacity": room.roomCapacity,
-#         "isPaid": False
-#     }
+    # Create response with extended information
+    response = {
+        "id": room_item.id,
+        "itineraryId": room_item.itineraryId,
+        "roomId": room_item.roomId,
+        "startDate": room_item.startDate,
+        "endDate": room_item.endDate,
+        "createdAt": room_item.createdAt,
+        "hotelName": hotel_user.name if hotel_user else "Unknown Hotel",
+        "roomName": f"{room.type.capitalize()} Room",
+        "roomType": room.type,
+        "city": hotel.city,
+        "pricePerNight": room.basePrice,
+        "capacity": room.roomCapacity,
+        "isPaid": False
+    }
     
-#     return response
+    return response
 
-# @router.delete("/{itinerary_id}/rooms/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-# async def remove_room_from_itinerary(
-#     itinerary_id: int,
-#     item_id: int,
-#     current_user: models.User = Depends(is_customer),
-#     db: Session = Depends(get_db)
-# ):
-#     # Verify itinerary belongs to the current user
-#     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
-#     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
-#         models.Itinerary.customerId == customer.id
-#     ).first()
+@router.delete("/{itineraryId}/rooms/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_room_from_itinerary(
+    itineraryId: int,
+    item_id: int,
+    current_user: models.User = Depends(is_customer),
+    db: Session = Depends(get_db)
+):
+    # Verify itinerary belongs to the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    itinerary = db.query(models.Itinerary).filter(
+        models.Itinerary.id == itineraryId,
+        models.Itinerary.customerId == customer.id
+    ).first()
     
-#     if not itinerary:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
-#         )
+    if not itinerary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Itinerary with ID {itineraryId} not found"
+        )
     
-#     # Get the room item
-#     room_item_query = db.query(models.RoomItem).filter(
-#         models.RoomItem.id == item_id,
-#         models.RoomItem.itinerary_id == itinerary_id
-#     )
+    # Get the room item
+    room_item_query = db.query(models.RoomItem).filter(
+        models.RoomItem.id == item_id,
+        models.RoomItem.itineraryId == itineraryId
+    )
     
-#     if not room_item_query.first():
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Room item with ID {item_id} not found"
-#         )
+    if not room_item_query.first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Room item with ID {item_id} not found"
+        )
     
-#     # Delete the room item
-#     room_item_query.delete(synchronize_session=False)
-#     db.commit()
+    # Delete the room item
+    room_item_query.delete(synchronize_session=False)
+    db.commit()
     
-#     return None
+    return None
 
 # # Transportation (Ride Bookings)
-# @router.post("/{itinerary_id}/rides", response_model=schemas.RideBookingResponse)
+# @router.post("/{itineraryId}/rides", response_model=schemas.RideBookingResponse)
 # async def book_ride(
-#     itinerary_id: int,
+#     itineraryId: int,
 #     ride_booking: schemas.RideBookingCreate,
 #     current_user: models.User = Depends(is_customer),
 #     db: Session = Depends(get_db)
@@ -571,14 +670,14 @@ async def add_schedule_item(
 #     # Verify itinerary belongs to the current user
 #     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
 #     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
+#         models.Itinerary.id == itineraryId,
 #         models.Itinerary.customerId == customer.id
 #     ).first()
     
 #     if not itinerary:
 #         raise HTTPException(
 #             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
+#             detail=f"Itinerary with ID {itineraryId} not found"
 #         )
     
 #     # Find an available driver (in a real app, this would be more sophisticated)
@@ -599,7 +698,7 @@ async def add_schedule_item(
 #     new_ride = models.RideBooking(
 #         customerId=customer.id,
 #         driverId=ride_booking.driverId if ride_booking.driverId else driver.id,
-#         itineraryId=itinerary_id,
+#         itineraryId=itineraryId,
 #         pickupLocation=ride_booking.pickupLocation,
 #         dropLocation=ride_booking.dropLocation,
 #         pickupTime=ride_booking.pickupTime,
@@ -642,9 +741,9 @@ async def add_schedule_item(
     
 #     return response
 
-# @router.put("/{itinerary_id}/rides/{ride_id}", response_model=schemas.RideBookingResponse)
+# @router.put("/{itineraryId}/rides/{ride_id}", response_model=schemas.RideBookingResponse)
 # async def update_ride_booking(
-#     itinerary_id: int,
+#     itineraryId: int,
 #     ride_id: int,
 #     ride_update: schemas.RideBookingUpdate,
 #     current_user: models.User = Depends(is_customer),
@@ -653,20 +752,20 @@ async def add_schedule_item(
 #     # Verify itinerary belongs to the current user
 #     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
 #     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
+#         models.Itinerary.id == itineraryId,
 #         models.Itinerary.customerId == customer.id
 #     ).first()
     
 #     if not itinerary:
 #         raise HTTPException(
 #             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
+#             detail=f"Itinerary with ID {itineraryId} not found"
 #         )
     
 #     # Get the ride booking
 #     ride_query = db.query(models.RideBooking).filter(
 #         models.RideBooking.id == ride_id,
-#         models.RideBooking.itineraryId == itinerary_id,
+#         models.RideBooking.itineraryId == itineraryId,
 #         models.RideBooking.customerId == customer.id
 #     )
     
@@ -718,9 +817,9 @@ async def add_schedule_item(
     
 #     return response
 
-# @router.delete("/{itinerary_id}/rides/{ride_id}", status_code=status.HTTP_204_NO_CONTENT)
+# @router.delete("/{itineraryId}/rides/{ride_id}", status_code=status.HTTP_204_NO_CONTENT)
 # async def cancel_ride(
-#     itinerary_id: int,
+#     itineraryId: int,
 #     ride_id: int,
 #     current_user: models.User = Depends(is_customer),
 #     db: Session = Depends(get_db)
@@ -728,20 +827,20 @@ async def add_schedule_item(
 #     # Verify itinerary belongs to the current user
 #     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
 #     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
+#         models.Itinerary.id == itineraryId,
 #         models.Itinerary.customerId == customer.id
 #     ).first()
     
 #     if not itinerary:
 #         raise HTTPException(
 #             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
+#             detail=f"Itinerary with ID {itineraryId} not found"
 #         )
     
 #     # Get the ride
 #     ride_query = db.query(models.RideBooking).filter(
 #         models.RideBooking.id == ride_id,
-#         models.RideBooking.itineraryId == itinerary_id,
+#         models.RideBooking.itineraryId == itineraryId,
 #         models.RideBooking.customerId == customer.id
 #     )
     
@@ -758,64 +857,10 @@ async def add_schedule_item(
     
 #     return None
 
-# # Available rooms endpoint
-# @router.get("/available-rooms", response_model=List[schemas.AvailableRoomResponse])
-# async def get_available_rooms(
-#     start_date: datetime,
-#     end_date: datetime,
-#     city: Optional[str] = None,
-#     guests: int = 1,
-#     current_user: models.User = Depends(is_customer),
-#     db: Session = Depends(get_db)
-# ):
-#     # Base query for rooms
-#     query = db.query(models.Room).join(
-#         models.Hotel,
-#         models.Room.hotelId == models.Hotel.id
-#     )
-    
-#     # Apply filters
-#     if city:
-#         query = query.filter(models.Hotel.city == city)
-    
-#     # Filter by capacity
-#     query = query.filter(models.Room.roomCapacity >= guests)
-    
-#     # Get all matching rooms
-#     rooms = query.all()
-    
-#     # For each room, check if it's available during the specified dates
-#     # This would require checking bookings and room items
-    
-#     # For this example, we'll return all rooms as available
-#     available_rooms = []
-    
-#     for room in rooms:
-#         hotel = db.query(models.Hotel).filter(models.Hotel.id == room.hotelId).first()
-#         hotel_user = db.query(models.User).filter(models.User.id == hotel.userId).first()
-        
-#         # Create response
-#         room_data = {
-#             "id": room.id,
-#             "hotelId": room.hotelId,
-#             "type": room.type,
-#             "roomCapacity": room.roomCapacity,
-#             "basePrice": room.basePrice,
-#             "totalNumber": room.totalNumber,
-#             "hotelName": hotel_user.name,
-#             "city": hotel.city,
-#             "image": "/placeholder.svg?height=300&width=500",  # This would come from an assets table
-#             "amenities": ["Free WiFi", "TV", "Air Conditioning"]  # This would come from a room_amenities table
-#         }
-        
-#         available_rooms.append(room_data)
-    
-#     return available_rooms
-
 # # Driver service endpoint
-# @router.put("/{itinerary_id}/driver-service", response_model=schemas.ItineraryResponse)
+# @router.put("/{itineraryId}/driver-service", response_model=schemas.ItineraryResponse)
 # async def toggle_driver_service(
-#     itinerary_id: int,
+#     itineraryId: int,
 #     driver_service: bool,
 #     current_user: models.User = Depends(is_customer),
 #     db: Session = Depends(get_db)
@@ -823,14 +868,14 @@ async def add_schedule_item(
 #     # Verify itinerary belongs to the current user
 #     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
 #     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itinerary_id,
+#         models.Itinerary.id == itineraryId,
 #         models.Itinerary.customerId == customer.id
 #     ).first()
     
 #     if not itinerary:
 #         raise HTTPException(
 #             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itinerary_id} not found"
+#             detail=f"Itinerary with ID {itineraryId} not found"
 #         )
     
 #     # Update the driver service flag
