@@ -9,7 +9,11 @@ from ..security import hash_password
 from datetime import datetime, timedelta
 from sqlalchemy import func
 from .. import schemas
+from ..schemas import CustomerCreate, CustomerUpdate, CustomerResponse , RideBookingBase , RideBookingResponse
+from ..models import User, RoomBooking, Hotel, Room, RoomItem, HotelReview, Customer, RideBooking, Itinerary, ScheduleItem, Driver
+from datetime import timedelta
 from .. import models
+
 
 # Create router with prefix and tags
 router = APIRouter(
@@ -252,3 +256,72 @@ async def cancel_room_booking_endpoint(
     
     # Call the service function to handle cancellation
     return cancel_room_booking(db, booking_id, customer.id)
+
+
+@router.post("/customer_itineraries/{itinerary_id}/rides", response_model=schemas.RideBookingResponse)
+def book_ride_for_itinerary(
+    itinerary_id: int,
+    ride_data: schemas.RideBookingCreate,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Book a ride for an itinerary with pending status"""
+    # Get the current user and their customer profile
+    current_user = is_customer(request)
+    customer = db.query(Customer).filter(Customer.userId == current_user.id).first()
+    
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer profile not found"
+        )
+    
+    # Check if the itinerary exists and belongs to this customer
+    itinerary = db.query(Itinerary).filter(
+        Itinerary.id == itinerary_id,
+        Itinerary.customerId == customer.id
+    ).first()
+    
+    if not itinerary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Itinerary not found or you don't have access"
+        )
+    
+    try:
+                
+        # Create the ride booking - note driverId is NULL initially
+        new_ride = RideBooking(
+            pickupLocation=ride_data.pickupLocation,
+            dropLocation=ride_data.dropoffLocation,
+            pickupDateTime=ride_data.pickupDateTime,
+            numberOfPersons=ride_data.numberOfPersons if ride_data.numberOfPersons else itinerary.numberOfPersons,
+            price=100,                                  #by default 100
+            status="pending",  # Set initial status as pending
+            customerId=customer.id,
+            itineraryId=itinerary_id
+        )
+        
+        db.add(new_ride)
+        db.commit()
+        db.refresh(new_ride)
+        
+        # Format the response
+        return {
+            "id": new_ride.id,
+            "pickupLocation": new_ride.pickupLocation,
+            "dropLocation": new_ride.dropLocation,
+            "pickupTime": new_ride.pickupTime,
+            "dropTime": new_ride.dropTime,
+            "numberOfPersons": new_ride.numberOfPersons,
+            "price": float(new_ride.price),  # Convert Decimal to float if needed
+            "status": new_ride.status,
+            "driverName": "Pending...",
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to book ride: {str(e)}"
+        )
