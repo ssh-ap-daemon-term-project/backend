@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session, aliased
+from sqlalchemy.sql import and_
 from typing import List, Optional, Dict, Any
 from ..database import SessionLocal
 from ..middleware import is_customer
@@ -8,8 +9,7 @@ from ..security import hash_password
 from datetime import datetime, timedelta
 from sqlalchemy import func
 from .. import schemas
-from ..schemas import CustomerCreate, CustomerUpdate, CustomerResponse
-from ..models import User, RoomBooking, Hotel, Room, RoomItem, HotelReview, Customer, RideBooking, Itinerary, ScheduleItem, Driver
+from .. import models
 
 # Create router with prefix and tags
 router = APIRouter(
@@ -23,109 +23,232 @@ def get_db():
     finally:
         db.close()
 
-# Itinerary functions
-@router.post("/create-itinerary", response_model=schemas.ItineraryResponse)
-def create_itinerary(itinerary: schemas.ItineraryCreate, request: Request, db: Session = Depends(get_db)):
-    # Check if the user is a customer
-    current_user = is_customer(request)
+# room booking
+# room booking helper function
+def book_room(db: Session, request: schemas.RoomBookingRequest) -> schemas.RoomBookingResponse:
+    """
+    Books a room based on a room item in an itinerary
     
-    # Get the customer profile
-    customer = db.query(Customer).filter(Customer.userId == current_user.id).first()
-    if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Customer profile not found"
+    Args:
+        db: Database session
+        request: Room booking request containing room_item_id, number_of_persons, and customer_id
+        
+    Returns:
+        RoomBookingResponse: Details of the successful booking
+        
+    Raises:
+        HTTPException: If validation fails or room is unavailable
+    """
+    # Step 1: Check if the room item exists and belongs to the customer's itinerary
+    room_item = db.query(models.RoomItem).filter(models.RoomItem.id == request.room_item_id).first()
+    
+    if not room_item:
+        raise HTTPException(status_code=404, detail="Room item not found")
+    
+    # Verify customer owns the itinerary
+    itinerary = db.query(models.Itinerary).filter(
+        and_(
+            models.Itinerary.id == room_item.itineraryId,
+            models.Itinerary.customerId == request.customer_id
         )
-    
-    # Check if the itinerary name already exists for the customer
-    existing_itinerary = db.query(Itinerary).filter(
-        Itinerary.customerId == customer.id,
-        Itinerary.name == itinerary.name
     ).first()
     
-    if existing_itinerary:
+    if not itinerary:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Itinerary name already exists for this customer"
+            status_code=403, 
+            detail="Access denied: This room item doesn't belong to your itinerary"
         )
     
-    # Create the itinerary
-    new_itinerary = Itinerary(
-        customerId=customer.id,
-        name=itinerary.name,
-        numberOfPersons=itinerary.numberOfPersons
+    # Step 2: Check if the room is already booked
+    if room_item.roomBookingId is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="This room is already booked"
+        )
+    
+    room = db.query(models.Room).filter(models.Room.id == room_item.roomId).first()
+    # # Step 3: Check room capacity
+    # if request.number_of_persons > room.roomCapacity:
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail=f"Number of persons ({request.number_of_persons}) exceeds room capacity ({room.roomCapacity})"
+    #     )
+    
+    # Step 3: Check room availability for each day in the date range
+    start_date = room_item.startDate
+    end_date = room_item.endDate
+    
+    # Get all bookings for this room type in the hotel during the date range
+    existing_bookings = db.query(models.RoomBooking).join(
+        models.Room, models.Room.id == models.RoomBooking.roomId
+    ).filter(
+        models.RoomBooking.startDate < end_date,
+        models.RoomBooking.endDate > start_date
+    ).all()
+    
+    # Calculate availability for each day
+    current_date = start_date
+    unavailable_dates = []
+    
+    while current_date < end_date:
+        # Count bookings that include this day
+        bookings_count = 0
+        for booking in existing_bookings:
+            if booking.startDate <= current_date < booking.endDate:
+                bookings_count += 1
+        
+        # Check if there's at least one room available
+        if bookings_count >= room.totalNumber:
+            unavailable_dates.append(current_date.strftime("%Y-%m-%d"))
+        
+        current_date += timedelta(days=1)
+    
+    # If any days are unavailable, return an error
+    if unavailable_dates:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Room not available for the following dates: {', '.join(unavailable_dates)}"
+        )
+    
+    # Step 4: All checks passed, create a new booking
+    room_booking = models.RoomBooking(
+        customerId=request.customer_id,
+        roomId=room_item.roomId,
+        startDate=start_date,
+        endDate=end_date,
+        numberOfPersons=request.number_of_persons,
     )
     
-    db.add(new_itinerary)
+    db.add(room_booking)
+    db.flush()  # Get the ID of the new booking
+    
+    # Update the room item with the booking ID
+    room_item.roomBookingId = room_booking.id
+    
     db.commit()
-    db.refresh(new_itinerary)
     
-    return new_itinerary
+    # Calculate price (basePrice * number of days)
+    days = (end_date - start_date).days
+    total_price = room.basePrice * days
+    
+    # Get hotel name for response
+    hotel_name = room.hotel.user.name
+    
+    # Return success response
+    return schemas.RoomBookingResponse(
+        booking_id=room_booking.id,
+        room_item_id=room_item.id,
+        start_date=start_date,
+        end_date=end_date,
+        room_type=room.type,
+        hotel_name=hotel_name,
+        number_of_persons=request.number_of_persons,
+        total_price=total_price
+    )
 
-@router.get("/get-itineraries", response_model=List[schemas.ItineraryResponse])
-def get_itineraries(current_user: User = Depends(is_customer), db: Session = Depends(get_db)):
+@router.post(
+    "/book-room", 
+    response_model=schemas.RoomBookingResponse, 
+    responses={
+        400: {"model": schemas.ErrorResponse, "description": "Bad Request"},
+        403: {"model": schemas.ErrorResponse, "description": "Access Denied"},
+        404: {"model": schemas.ErrorResponse, "description": "Not Found"},
+        409: {"model": schemas.ErrorResponse, "description": "Conflict - Room Unavailable"}
+    }
+)
+async def create_room_booking(
+    request: schemas.RoomBookingRequest, 
+    db: Session = Depends(get_db),
+    current_user = Depends(is_customer)
+):
+    """
+    Book a room from an itinerary's room item.
     
-    # Get the customer profile
-    customer = db.query(Customer).filter(Customer.userId == current_user.id).first()
-    if not customer:
+    This endpoint allows a customer to book a room that was previously added to their itinerary.
+    It checks for room availability and creates a booking if the room is available.
+    """
+    
+    # Verify the customer ID in the request matches the authenticated user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    if customer.id != request.customer_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Customer profile not found"
+            status_code=403,
+            detail="You can only book rooms for your own itineraries"
         )
     
-    # Get all itineraries for the customer
-    itineraries = db.query(Itinerary).filter(Itinerary.customerId == customer.id).all()
+    # Call the service function to handle booking
+    return book_room(db, request)
 
-    # Get all room items for the itineraries
-    room_items = db.query(RoomItem).filter(RoomItem.itinerary_id.in_([itinerary.id for itinerary in itineraries])).all()
+# cancel room booking
+# cancel room booking helper function
+def cancel_room_booking(db: Session, booking_id: int, customer_id: int) -> dict:
+    """
+    Cancels an existing room booking
+    
+    Args:
+        db: Database session
+        booking_id: ID of the booking to cancel
+        customer_id: ID of the customer making the request
+        
+    Returns:
+        dict: Confirmation of cancellation
+        
+    Raises:
+        HTTPException: If booking doesn't exist or doesn't belong to the customer
+    """
+    # Find the booking
+    booking = db.query(models.RoomBooking).filter(models.RoomBooking.id == booking_id).first()
+    
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    # Verify ownership
+    if booking.customerId != customer_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: This booking doesn't belong to you"
+        )
+    
+    # Find the room item associated with this booking
+    room_item = db.query(models.RoomItem).filter(models.RoomItem.roomBookingId == booking_id).first()
+    
+    if room_item:
+        # Remove the booking reference from the room item
+        room_item.roomBookingId = None
+    
+    # Delete the booking
+    db.delete(booking)
+    db.commit()
+    
+    return {"message": "Room booking cancelled successfully", "booking_id": booking_id}
 
-    # Get all schedule items for the itineraries
-    schedule_items = db.query(ScheduleItem).filter(ScheduleItem.itinerary_id.in_([itinerary.id for itinerary in itineraries])).all()
-
-    # Add room items to the itineraries
-    for itinerary in itineraries:
-        # Add room items to the itinerary
-        itinerary.room_items = [item for item in room_items if item.itinerary_id == itinerary.id]
-        # Add schedule items to the itinerary
-        itinerary.schedule_items = [item for item in schedule_items if item.itinerary_id == itinerary.id]
-        # set itinerary.startDate and itinerary.endDate to the scheduleItem lowest startTime and highest endTime
-        if itinerary.schedule_items:
-            itinerary.startDate = min(item.startTime for item in itinerary.schedule_items)
-            itinerary.endDate = max(item.endTime for item in itinerary.schedule_items)
-        else:
-            itinerary.startDate = None
-            itinerary.endDate = None
+# Add this route after your book-room endpoint
+@router.delete(
+    "/booking/room/{booking_id}", 
+    responses={
+        404: {"model": schemas.ErrorResponse, "description": "Not Found"},
+        403: {"model": schemas.ErrorResponse, "description": "Access Denied"}
+    }
+)
+async def cancel_room_booking_endpoint(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(is_customer)
+):
+    """
+    Cancel a room booking.
     
-    # Return the itineraries
-    return itineraries
-
-# @router.get("/{id}", response_model=schemas.FullItineraryResponse)
-# def get_itinerary(
-#     id: int,
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(is_customer)
-# ):
-#     # Get the itinerary
-#     itinerary = db.query(Itinerary).filter(Itinerary.id == id).first()
+    This endpoint allows customers to cancel their existing room bookings.
+    The room will be freed up for other customers to book.
+    """
     
-#     if not itinerary:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {id} not found"
-#         )
+    # Get the customer ID associated with the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=404,
+            detail="Customer account not found"
+        )
     
-#     # Check if the user is authorized to view this itinerary
-#     if current_user.userType == "customer":
-#         customer = db.query(Customer).filter(Customer.userId == current_user.id).first()
-#         if not customer or itinerary.customerId != customer.id:
-#             raise HTTPException(
-#                 status_code=status.HTTP_403_FORBIDDEN,
-#                 detail="Not authorized to access this itinerary"
-#             )
-#     elif current_user.userType != "admin":
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN,
-#             detail="Not authorized to access this itinerary"
-#         )
-    
-#     return itinerary
+    # Call the service function to handle cancellation
+    return cancel_room_booking(db, booking_id, customer.id)
