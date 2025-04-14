@@ -101,12 +101,11 @@ class RideBooking(Base):
 
     id = Column(Integer, primary_key=True)
     customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    driverId = Column(Integer, ForeignKey("drivers.id"))
+    driverId = Column(Integer, ForeignKey("drivers.id") , nullable = True)
     itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)  # Itinerary
     pickupLocation = Column(String(100), nullable=False)
-    dropLocation = Column(String(100), nullable=False)
-    pickupTime = Column(DateTime, nullable=False)
-    dropTime = Column(DateTime, nullable=False)
+    dropoffLocation = Column(String(100), nullable=False)
+    pickupDateTime = Column(DateTime, nullable=False)
     numberOfPersons = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
     status = Column(Enum("pending", "confirmed", "completed", "cancelled", name="ride_status"), default="pending")
