@@ -317,6 +317,29 @@ class RoomItemResponse(RoomItemBase):
 
     class Config:
         from_attributes = True
+        
+class RideBookingBase(BaseModel):
+    pickupLocation: str
+    dropoffLocation: str  # Note: frontend sends 'dropoffLocation'
+    pickupDateTime: datetime  # Note: frontend sends 'pickupDateTime'
+    numberOfPersons: Optional[int] = None
+
+class RideBookingCreate(RideBookingBase):
+    pass
+        
+class RideBookingResponse(BaseModel):
+    id: int
+    pickupLocation: str
+    dropoffLocation: str
+    pickupDateTime: datetime
+    numberOfPersons: int
+    price: float
+    status: str
+    driverName: str = "Pending..."
+    
+    class Config:
+        orm_mode = True
+
 
 class ItineraryResponse(ItineraryBase):
     id: int
@@ -324,7 +347,7 @@ class ItineraryResponse(ItineraryBase):
     createdAt: datetime
     roomItems: List[RoomItemResponse] = []
     scheduleItems: List[ScheduleItemResponse] = []
-    # rideBookings: List[RideBookingResponse] = []
+    rideBookings: List[RideBookingResponse] = []
     startDate: Optional[datetime] = None
     endDate: Optional[datetime] = None
     destinations: List[str] = []
@@ -368,7 +391,7 @@ class GetItineraryRoomItemResponse(BaseModel):
     
     class Config:
         from_attributes = True
-
+        
 # Complete Itinerary Schema with nested relationships
 class GetItineraryResponse(BaseModel):
     id: int
@@ -383,7 +406,7 @@ class GetItineraryResponse(BaseModel):
     # Relationships with nested data
     roomItems: List[GetItineraryRoomItemResponse] = Field(default_factory=list)
     scheduleItems: List[ScheduleItemResponse] = Field(default_factory=list)
-    # rideBookings: List[RideBookingResponse] = Field(default_factory=list)
+    rideBookings: List[RideBookingResponse] = Field(default_factory=list)
     
     class Config:
         from_attributes = True
@@ -441,27 +464,7 @@ class UpdateItineraryRoomItemResponse(BaseModel):
     class Config:
         from_attributes = True
         
-class RideBookingBase(BaseModel):
-    pickupLocation: str
-    dropoffLocation: str  # Note: frontend sends 'dropoffLocation'
-    pickupDateTime: datetime  # Note: frontend sends 'pickupDateTime'
-    numberOfPersons: Optional[int] = None
 
-class RideBookingCreate(RideBookingBase):
-    pass
-
-class RideBookingResponse(BaseModel):
-    id: int
-    pickupLocation: str
-    dropoffLocation: str
-    pickupDateTime: datetime
-    numberOfPersons: int
-    price: float
-    status: str
-    driverName: str = "Pending..."
-    
-    class Config:
-        orm_mode = True
 
 # from pydantic import BaseModel, Field, EmailStr
 # from typing import List, Optional, Dict, Any, Union

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status , Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -7,6 +7,7 @@ from .. import models, schemas
 from ..database import SessionLocal
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql import and_
+from ..models import Customer , Itinerary, RoomItem, ScheduleItem, RideBooking
 
 router = APIRouter()
 
@@ -227,11 +228,39 @@ def get_itinerary(
                     "address": item.room.hotel.user.address if hasattr(item.room.hotel.user, "address") else None,
                     "description": item.room.hotel.description,
                     "stars": item.room.hotel.rating  # Set to None since your model has no 'stars' field
-                }
+                } 
             }
         })
 
         destinations.add(item.room.hotel.city)
+        
+    # Add ride bookings - using a list for consistency even though model has uselist=False
+    ride_bookings = []
+    # Query directly instead of using relationship
+    db_ride_bookings = db.query(models.RideBooking).filter(models.RideBooking.itineraryId == itinerary.id).all()
+
+    for booking in db_ride_bookings:
+        driver_name = "Pending..."
+        
+        # If there's a driver assigned, get their name
+        if booking.driverId:
+            driver = db.query(models.Driver).filter(models.Driver.id == booking.driverId).first()
+            if driver:
+                driver_user = db.query(models.User).filter(models.User.id == driver.userId).first()
+                if driver_user:
+                    driver_name = driver_user.name
+        
+        ride_bookings.append({
+            "id": booking.id,
+            "pickupLocation": booking.pickupLocation,
+            "dropoffLocation": booking.dropoffLocation,
+            "pickupDateTime": booking.pickupDateTime,
+            "numberOfPersons": booking.numberOfPersons,
+            "price": float(booking.price),
+            "status": booking.status,
+            "driverName": driver_name,
+            "isReviewed": False  # You can add logic to check if reviewed
+        })
 
     # Build final response
     response_data = {
@@ -256,8 +285,11 @@ def get_itinerary(
             }
             for item in itinerary.scheduleItems
         ],
-        "rideBookings": []  # TODO: Add ride booking
+        "rideBookings": ride_bookings  # TODO: Add ride booking
     }
+    
+    print("+++++++++++++++++++++++++++++++++")
+    print(f"Ride-Bookings is {response_data["rideBookings"]}")
 
     return response_data
 
@@ -683,6 +715,75 @@ async def remove_room_from_itinerary(
     db.commit()
     
     return None
+
+
+@router.post("/{itinerary_id}/rides", response_model=schemas.RideBookingResponse)
+def book_ride_for_itinerary(
+    itinerary_id: int,
+    ride_data: schemas.RideBookingCreate,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Book a ride for an itinerary with pending status"""
+    # Get the current user and their customer profile
+    current_user = is_customer(request)
+    customer = db.query(Customer).filter(Customer.userId == current_user.id).first()
+    
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer profile not found"
+        )
+    
+    # Check if the itinerary exists and belongs to this customer
+    itinerary = db.query(Itinerary).filter(
+        Itinerary.id == itinerary_id,
+        Itinerary.customerId == customer.id
+    ).first()
+    
+    if not itinerary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Itinerary not found or you don't have access"
+        )
+    
+    try:
+                
+        # Create the ride booking - note driverId is NULL initially
+        new_ride = RideBooking(
+            pickupLocation=ride_data.pickupLocation,
+            dropoffLocation=ride_data.dropoffLocation,
+            pickupDateTime=ride_data.pickupDateTime,
+            numberOfPersons=ride_data.numberOfPersons if ride_data.numberOfPersons else itinerary.numberOfPersons,
+            price=100,                                  #by default 100
+            status="pending",  # Set initial status as pending
+            customerId=customer.id,
+            itineraryId=itinerary_id
+        )
+        
+        db.add(new_ride)
+        db.commit()
+        db.refresh(new_ride)
+        
+        # Format the response
+        return {
+            "id": new_ride.id,
+            "pickupLocation": new_ride.pickupLocation,
+            "dropoffLocation": new_ride.dropoffLocation,
+            "pickupDateTime": new_ride.pickupDateTime,
+            "numberOfPersons": new_ride.numberOfPersons,
+            "price": float(new_ride.price),  # Convert Decimal to float if needed
+            "status": new_ride.status,
+            "driverName": "Pending...",
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to book ride: {str(e)}"
+        )
+
 
 # # Transportation (Ride Bookings)
 # @router.post("/{itineraryId}/rides", response_model=schemas.RideBookingResponse)
