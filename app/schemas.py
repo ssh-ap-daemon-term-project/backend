@@ -704,13 +704,13 @@ class CustomerAvailableRoomResponse(CustomerRoomResponse):
         from_attributes = True
 
 # Request schema for booking a room
-class RoomBookingRequest(BaseModel):
+class ItineraryRoomBookingRequest(BaseModel):
     room_item_id: int
     number_of_persons: int
     customer_id: int
 
 # Response schema for successful booking
-class RoomBookingResponse(BaseModel):
+class ItineraryRoomBookingResponse(BaseModel):
     booking_id: int
     room_item_id: int
     start_date: datetime
@@ -724,3 +724,7 @@ class RoomBookingResponse(BaseModel):
 # Error response schema
 class ErrorResponse(BaseModel):
     detail: str
+
+class ItineraryBookingCancellationResponse(BaseModel):
+    message: str
+    booking_id: int
