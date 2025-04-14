@@ -439,6 +439,28 @@ class UpdateItineraryRoomItemResponse(BaseModel):
     
     class Config:
         from_attributes = True
+        
+class RideBookingBase(BaseModel):
+    pickupLocation: str
+    dropoffLocation: str  # Note: frontend sends 'dropoffLocation'
+    pickupDateTime: datetime  # Note: frontend sends 'pickupDateTime'
+    numberOfPersons: Optional[int] = None
+
+class RideBookingCreate(RideBookingBase):
+    pass
+
+class RideBookingResponse(BaseModel):
+    id: int
+    pickupLocation: str
+    dropoffLocation: str
+    pickupDateTime: datetime
+    numberOfPersons: int
+    price: float
+    status: str
+    driverName: str = "Pending..."
+    
+    class Config:
+        orm_mode = True
 
 # from pydantic import BaseModel, Field, EmailStr
 # from typing import List, Optional, Dict, Any, Union
