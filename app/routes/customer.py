@@ -29,7 +29,7 @@ def get_db():
 
 # room booking
 # room booking helper function
-def book_room(db: Session, request: schemas.RoomBookingRequest) -> schemas.RoomBookingResponse:
+def book_room(db: Session, request: schemas.ItineraryRoomBookingRequest) -> schemas.ItineraryRoomBookingResponse:
     """
     Books a room based on a room item in an itinerary
     
@@ -139,7 +139,7 @@ def book_room(db: Session, request: schemas.RoomBookingRequest) -> schemas.RoomB
     hotel_name = room.hotel.user.name
     
     # Return success response
-    return schemas.RoomBookingResponse(
+    return schemas.ItineraryRoomBookingResponse(
         booking_id=room_booking.id,
         room_item_id=room_item.id,
         start_date=start_date,
@@ -151,8 +151,8 @@ def book_room(db: Session, request: schemas.RoomBookingRequest) -> schemas.RoomB
     )
 
 @router.post(
-    "/book-room", 
-    response_model=schemas.RoomBookingResponse, 
+    "/itinerary/room/book", 
+    response_model=schemas.ItineraryRoomBookingResponse, 
     responses={
         400: {"model": schemas.ErrorResponse, "description": "Bad Request"},
         403: {"model": schemas.ErrorResponse, "description": "Access Denied"},
@@ -161,7 +161,7 @@ def book_room(db: Session, request: schemas.RoomBookingRequest) -> schemas.RoomB
     }
 )
 async def create_room_booking(
-    request: schemas.RoomBookingRequest, 
+    request: schemas.ItineraryRoomBookingRequest, 
     db: Session = Depends(get_db),
     current_user = Depends(is_customer)
 ):
@@ -228,7 +228,8 @@ def cancel_room_booking(db: Session, booking_id: int, customer_id: int) -> dict:
 
 # Add this route after your book-room endpoint
 @router.delete(
-    "/booking/room/{booking_id}", 
+    "/itinerary/room/cancel/{booking_id}",
+    response_model=schemas.ItineraryBookingCancellationResponse,
     responses={
         404: {"model": schemas.ErrorResponse, "description": "Not Found"},
         403: {"model": schemas.ErrorResponse, "description": "Access Denied"}

@@ -73,7 +73,6 @@ def get_itineraries(
             # Extract start date from earliest schedule item
             start_dates = [item.startTime for item in itinerary.scheduleItems]
             # print all start dates
-            print("Start Dates:", start_dates)
             if start_dates:
                 itinerary.startDate = min(start_dates)
                 
@@ -125,20 +124,16 @@ async def get_available_rooms(
         room_bookings = db.query(models.RoomBooking).filter(
             models.RoomBooking.roomId == room.id,
             models.RoomBooking.startDate <= end_date,
-            models.RoomBooking.endDate >= start_date
+            models.RoomBooking.endDate > start_date
         ).all()
         
         # Calculate number of rooms booked for each day from start_date to end_date in a list
         booked_rooms = [0] * ((end_date - start_date).days + 1)
         for booking in room_bookings:
-            start_index = (booking.startDate - start_date).days
-            end_index = (booking.endDate - start_date).days
+            start_index = max(0, (booking.startDate - start_date).days)
+            end_index = min((end_date - start_date).days, (booking.endDate - start_date).days - 1)
             for i in range(start_index, end_index + 1):
                 booked_rooms[i] += 1
-                print("Booked Rooms:", booked_rooms[i])
-            print("Booking Dates:", booking.startDate, booking.endDate)
-        print("Booked Rooms List:", booked_rooms)
-        print("days:", (end_date - start_date).days + 1)
 
         # calculate the number of available rooms list
         available_rooms_list = [room.totalNumber - booked for booked in booked_rooms]
@@ -193,12 +188,13 @@ def get_itinerary(
     destinations = set()
 
     room_items = []
-    for item in itinerary.roomItems:
-        if item.startDate:
-            start_dates.append(item.startDate)
-        if item.endDate:
-            end_dates.append(item.endDate)
+    for item in itinerary.scheduleItems:
+        if item.startTime:
+            start_dates.append(item.startTime)
+        if item.endTime:
+            end_dates.append(item.endTime)
 
+    for item in itinerary.roomItems:
         hotel_user_name = (
             item.room.hotel.user.name if item.room.hotel and item.room.hotel.user else "Unknown Hotel"
         )
