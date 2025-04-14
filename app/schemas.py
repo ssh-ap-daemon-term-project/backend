@@ -363,6 +363,7 @@ class GetItineraryRoomItemResponse(BaseModel):
     roomId: int
     startDate: datetime
     endDate: datetime
+    isPaid: bool = False
     room: Optional[GetItineraryRoomResponse] = None
     
     class Config:
@@ -697,6 +698,29 @@ class CustomerRoomResponse(CustomerRoomBase):
 class CustomerAvailableRoomResponse(CustomerRoomResponse):
     image: Optional[str] = None
     amenities: List[str] = []
+    availableRoomsList: List[int] = []
     
     class Config:
         from_attributes = True
+
+# Request schema for booking a room
+class RoomBookingRequest(BaseModel):
+    room_item_id: int
+    number_of_persons: int
+    customer_id: int
+
+# Response schema for successful booking
+class RoomBookingResponse(BaseModel):
+    booking_id: int
+    room_item_id: int
+    start_date: datetime
+    end_date: datetime
+    room_type: str
+    hotel_name: str
+    number_of_persons: int
+    total_price: float
+    message: str = "Booking successful"
+
+# Error response schema
+class ErrorResponse(BaseModel):
+    detail: str
