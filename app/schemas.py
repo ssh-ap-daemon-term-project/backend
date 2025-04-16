@@ -464,13 +464,11 @@ class RideBookingResponse(BaseModel):
     class Config:
         from_attributes = True
 
-
 class ScheduleItemUpdate(BaseModel):
     startTime: Optional[datetime] = None
     endTime: Optional[datetime] = None
     location: Optional[str] = None
     description: Optional[str] = None
-
 
 # Room schemas for selection
 class CustomerRoomBase(BaseModel):
@@ -543,7 +541,7 @@ class HotelReviewResponse(BaseModel):
     customerName: str
     rating: float
     description: str
-    createdAt: Optional[str] = None
+    createdAt: datetime
     
     class Config:
         from_attributes = True
@@ -727,9 +725,23 @@ class AdminProfileResponse(BaseModel):
     class Config:
         from_attributes = True
         
-        
-        
-        
-        
-        
-        
+
+# Review-related Schemas
+class HotelReviewBase(BaseModel):
+    hotelId: int
+    rating: int
+    comment: str
+
+class HotelReviewUpdate(BaseModel):
+    rating: Optional[int] = None
+    comment: Optional[str] = None
+
+class CustomerReviewResponse(BaseModel):
+    id: int
+    hotelId: int
+    hotelName: str
+    city: str
+    rating: int
+    comment: str
+    date: str
+    image: Optional[str] = None
