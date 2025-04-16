@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql import and_, exists
 from typing import List, Optional, Dict, Any
 from ..database import SessionLocal
-from ..middleware import is_customer
+from ..middleware import is_customer, is_auth
 from ..schemas import HotelCreate, HotelUpdate, HotelResponse  
 from ..security import hash_password
 from datetime import datetime, timedelta
