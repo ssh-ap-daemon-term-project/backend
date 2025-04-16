@@ -799,9 +799,8 @@ async def cancel_customer_booking(
     }
 
 # Write a review for a booking
-@router.post("/bookings/{booking_id}/review", response_model=schemas.HotelReviewResponse)
+@router.post("/bookings/review", response_model=schemas.HotelReviewResponse)
 async def create_booking_review(
-    booking_id: int,
     review_data: schemas.BookingReviewRequest,
     db: Session = Depends(get_db),
     current_user = Depends(is_customer)
@@ -819,7 +818,7 @@ async def create_booking_review(
     
     # Find the booking
     booking = db.query(models.RoomBooking).filter(
-        models.RoomBooking.id == booking_id,
+        models.RoomBooking.id == review_data.booking_id,
         models.RoomBooking.customerId == customer.id
     ).first()
     
@@ -837,6 +836,18 @@ async def create_booking_review(
             detail="Cannot review a booking that hasn't been completed yet"
         )
     
+    # Check if a review already exists for this hotel by this customer
+    existing_review = db.query(models.HotelReview).filter(
+        models.HotelReview.customerId == customer.id,
+        models.HotelReview.hotelId == booking.room.hotelId
+    ).first()
+    
+    if existing_review:
+        raise HTTPException(
+            status_code=400,
+            detail="You have already reviewed this hotel"
+        )
+    
     # Get room and hotel for this booking
     room = db.query(models.Room).filter(models.Room.id == booking.roomId).first()
     if not room:
@@ -850,16 +861,12 @@ async def create_booking_review(
         customerId=customer.id,
         hotelId=room.hotelId,
         rating=review_data.rating,
-        description=review_data.comment,
-        createdAt=datetime.utcnow()
+        description=review_data.comment
     )
     
     db.add(new_review)
     db.commit()
     db.refresh(new_review)
-    
-    # Update the hotel's average rating
-    update_hotel_average_rating(db, room.hotelId)
     
     return {
         "id": new_review.id,
@@ -870,25 +877,126 @@ async def create_booking_review(
         "createdAt": new_review.createdAt.isoformat()
     }
 
-# Helper function to update hotel average rating
-def update_hotel_average_rating(db: Session, hotel_id: int):
+# Get all reviews by the current customer
+@router.get("/reviews", response_model=List[schemas.CustomerReviewResponse])
+async def get_customer_reviews(
+    db: Session = Depends(get_db),
+    current_user = Depends(is_customer)
+):
     """
-    Update the average rating for a hotel based on all its reviews.
+    Get all reviews written by the currently logged in customer.
     """
-    # Get all reviews for this hotel
+    # Get the customer ID associated with the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer account not found")
+    
+    # Get all reviews by this customer
     reviews = db.query(models.HotelReview).filter(
-        models.HotelReview.hotelId == hotel_id
+        models.HotelReview.customerId == customer.id
     ).all()
     
-    if not reviews:
-        return
+    result = []
     
-    # Calculate average rating
-    total_rating = sum(float(review.rating) for review in reviews)
-    avg_rating = total_rating / len(reviews)
+    for review in reviews:
+        # Get hotel info
+        hotel = db.query(models.Hotel).filter(models.Hotel.id == review.hotelId).first()
+        if not hotel:
+            continue  # Skip if hotel not found
+        
+        # Get hotel name from user table
+        hotel_user = db.query(models.User).filter(models.User.id == hotel.userId).first()
+        if not hotel_user:
+            continue  # Skip if user not found
+        
+        result.append({
+            "id": review.id,
+            "hotelId": hotel.id,
+            "hotelName": hotel_user.name,
+            "city": hotel.city,
+            "rating": int(review.rating),
+            "comment": review.description,
+            "date": review.createdAt.strftime('%Y-%m-%d'),
+            "image": hotel.imageUrl if hasattr(hotel, 'imageUrl') and hotel.imageUrl else None
+        })
     
-    # Update hotel rating
-    hotel = db.query(models.Hotel).filter(models.Hotel.id == hotel_id).first()
-    if hotel:
-        hotel.rating = avg_rating
-        db.commit()
+    return result
+
+# Update a review
+@router.put("/reviews/{review_id}", response_model=schemas.HotelReviewResponse)
+async def update_review(
+    review_id: int,
+    review_data: schemas.HotelReviewUpdate,
+    db: Session = Depends(get_db),
+    current_user = Depends(is_customer)
+):
+    """
+    Update a review written by the current customer.
+    """
+    # Get the customer ID associated with the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer account not found")
+    
+    # Get the review
+    review = db.query(models.HotelReview).filter(
+        models.HotelReview.id == review_id,
+        models.HotelReview.customerId == customer.id
+    ).first()
+    
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found or does not belong to this customer")
+    
+    # Update fields
+    if review_data.rating is not None:
+        review.rating = review_data.rating
+    
+    if review_data.comment is not None:
+        review.description = review_data.comment
+    
+    # review.updatedAt = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(review)
+    
+    return {
+        "id": review.id,
+        "customerId": review.customerId,
+        "customerName": current_user.name,
+        "rating": float(review.rating),
+        "description": review.description,
+        "createdAt": review.createdAt
+    }
+
+# Delete a review
+@router.delete("/reviews/{review_id}")
+async def delete_review(
+    review_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(is_customer)
+):
+    """
+    Delete a review written by the current customer.
+    """
+    # Get the customer ID associated with the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer account not found")
+    
+    # Get the review
+    review = db.query(models.HotelReview).filter(
+        models.HotelReview.id == review_id,
+        models.HotelReview.customerId == customer.id
+    ).first()
+    
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found or does not belong to this customer")
+    
+    # Store the hotel ID to update its rating later
+    hotel_id = review.hotelId
+    
+    # Delete the review
+    db.delete(review)
+    db.commit()
+    
+    return {"message": "Review deleted successfully", "review_id": review_id}
