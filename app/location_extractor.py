@@ -35,7 +35,14 @@ class LocationExtractor:
         """
         try:
             response = self.agent.run(prompt)
+            # Add token metrics tracking
+            input_tokens = response.metrics['input_tokens'][0]
+            output_tokens = response.metrics['output_tokens'][0]
+            total_tokens = response.metrics['total_tokens'][0]
+            print(f"Location extractor metrics - Input tokens: {input_tokens}, Output tokens: {output_tokens}, Total: {total_tokens}")
+            
             locations = ast.literal_eval(response.content.strip())
+            print(locations)
             if not isinstance(locations, list):
                 raise ValueError("Parsed content is not a list.")
             return locations

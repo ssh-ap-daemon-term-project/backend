@@ -113,7 +113,13 @@ class SQLQueryPlannerAgent:
         """
         response = self.agent.run(user_query)
         response_content = response.content
-        print("Response Content:", response_content)  # Debugging line to check the raw response
+        
+        # Add token metrics tracking
+        input_tokens = response.metrics['input_tokens'][0]
+        output_tokens = response.metrics['output_tokens'][0]
+        total_tokens = response.metrics['total_tokens'][0]
+        print(f"Query planner metrics - Input tokens: {input_tokens}, Output tokens: {output_tokens}, Total: {total_tokens}")
+        
         cleaned = self._clean_response(response_content)
         return self._parse_to_list(cleaned)
 
