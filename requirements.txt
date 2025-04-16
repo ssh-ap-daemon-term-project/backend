@@ -10,4 +10,8 @@ psycopg2-binary
 pydantic[email]
 psycopg2
 openai
-
+agno
+psycopg
+google-genai
+transformers
+groq
