@@ -7,7 +7,7 @@ from ..schemas import HotelCreate, HotelUpdate, HotelResponse  , DriverDetailRes
 from ..security import hash_password
 from datetime import datetime, timedelta
 from sqlalchemy import func
-from .. import schemas
+from .. import schemas , models
 from ..schemas import CustomerCreate, CustomerUpdate, CustomerResponse
 from ..models import User, RoomBooking, Hotel, Room, RoomItem, HotelReview, Customer, RideBooking, Itinerary, ScheduleItem, Driver
 
@@ -427,8 +427,8 @@ def get_customer_ride_bookings(customer_id: int, db: Session = Depends(get_db)):
             "driverName": driver_name,
             "carModel": car_model,
             "pickupLocation": booking.pickupLocation,
-            "dropLocation": booking.dropLocation,
-            "pickupTime": booking.pickupTime.isoformat(),
+            "dropLocation": booking.dropoffLocation,
+            "pickupTime": booking.pickupDateTime.isoformat(),
             "status": booking.status,
             "price": float(booking.price)
         })
@@ -1185,9 +1185,8 @@ def get_driver_ride_bookings(driver_id: int, db: Session = Depends(get_db)):
             "customerId": booking.customerId,
             "customerName": customer_name,
             "pickupLocation": booking.pickupLocation,
-            "dropLocation": booking.dropLocation,
-            "pickupTime": booking.pickupTime.isoformat(),
-            "dropTime": booking.dropTime.isoformat(),
+            "dropLocation": booking.dropoffLocation,
+            "pickupTime": booking.pickupDateTime.isoformat(),
             "numberOfPersons": booking.numberOfPersons,
             "price": float(booking.price),
             "status": booking.status
@@ -1414,3 +1413,43 @@ def get_all_room_bookings(db: Session = Depends(get_db)):
         })
     return bookings
     
+    
+@router.get("/profile", response_model=schemas.AdminProfileResponse)
+def get_admin_profile(current_user: models.User = Depends(is_admin), db: Session = Depends(get_db)):
+    """Get the profile for the currently logged-in admin"""
+    # Get the admin profile for the current user
+    admin = db.query(models.Admin).filter(models.Admin.userId == current_user.id).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin profile not found")
+    
+    # Count various entities for statistics
+    total_customers = db.query(models.Customer).count()
+    total_drivers = db.query(models.Driver).count()
+    total_itineraries = db.query(models.Itinerary).count()
+    total_hotels = db.query(models.Hotel).count()
+    
+    # Create response
+    response = {
+        "id": admin.id,
+        "userId": admin.userId,
+        "name": current_user.name,
+        "email": current_user.email,
+        "phoneNumber": current_user.phone,
+        "createdAt": admin.createdAt,
+        "isActive": True,
+        "totalCustomers": total_customers,
+        "totalDrivers": total_drivers,
+        "totalItineraries": total_itineraries,
+        "totalHotels": total_hotels,
+        "permissions": ["manage_users", "manage_bookings", "system_settings", "view_reports"]
+    }
+    
+    # Safely add other fields if they exist
+    for field in ["phoneNumber", "position", "department", "lastLogin"]:
+        if hasattr(admin, field):
+            response[field] = getattr(admin, field)
+        else:
+            # Default values already set in the schema
+            pass
+    
+    return response

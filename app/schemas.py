@@ -95,7 +95,6 @@ class RoomBookingBase(BaseModel):
     userId: int
     startDate: datetime
     endDate: datetime
-    status: str
     numberOfPersons: int
     
     class Config:
@@ -301,7 +300,7 @@ class ScheduleItemResponse(ScheduleItemBase):
 
     class Config:
         from_attributes = True
-
+        
 class RoomItemBase(BaseModel):
     roomId: int
     startDate: datetime
@@ -317,7 +316,8 @@ class RoomItemResponse(RoomItemBase):
 
     class Config:
         from_attributes = True
-
+        
+        
 class ItineraryResponse(ItineraryBase):
     id: int
     customerId: int
@@ -449,6 +449,7 @@ class RideBookingBase(BaseModel):
 
 class RideBookingCreate(RideBookingBase):
     pass
+
 
 class RideBookingResponse(BaseModel):
     id: int
@@ -595,7 +596,6 @@ class BookingCancellationByBookingIdResponse(BaseModel):
     message: str
     booking_id: int
 
-# Customer Bookings Schemas
 class CustomerBookingResponse(BaseModel):
     id: int
     hotelId: int
@@ -617,6 +617,114 @@ class BookingReviewRequest(BaseModel):
     booking_id: int
     rating: int
     comment: str
+    
+    
+class HotelRoom(BaseModel):
+    id: int
+    type: str
+    basePrice: float
+    roomCapacity: int
+    image: Optional[str] = None
+
+class HotelReviewDetail(BaseModel):
+    id: int
+    rating: int
+    comment: str
+    customerName: str
+    date: str
+
+class HotelStats(BaseModel):
+    totalBookings: int
+    occupancyRate: int
+
+class HotelProfileResponse(BaseModel):
+    id: int
+    userId: int
+    name: str
+    email: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: str
+    description: Optional[str] = None
+    rating: Optional[float] = None
+    totalRooms: int
+    rooms: List[HotelRoom]
+    reviews: List[HotelReviewDetail]
+    stats: HotelStats
+    amenities: List[str]
+
+class HotelProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    description: Optional[str] = None
+    amenities: Optional[List[str]] = None
+
+    
+    
+class DriverProfileResponse(BaseModel):
+    id: int
+    userId: int
+    name: str
+    email: str
+    licenseNumber: Optional[str] = ""
+    vehicleType: Optional[str] = ""
+    vehicleModel: Optional[str] = ""
+    vehicleYear: Optional[int] = 0
+    vehiclePlate: Optional[str] = ""
+    address: Optional[str] = ""
+    phoneNumber: Optional[str] = ""
+    isVerified: bool = False
+    createdAt: datetime
+    rating: float = 0.0
+    totalTrips: int = 0
+    
+    class Config:
+        from_attributes = True
+        
+class CustomerProfileResponse(BaseModel):
+    id: int
+    userId: int
+    name: str
+    email: str
+    phoneNumber: Optional[str] = ""
+    address: Optional[str] = ""
+    dateOfBirth: Optional[datetime] = None
+    preferences: Optional[Dict[str, Any]] = {}
+    isVerified: bool = False
+    createdAt: datetime
+    totalTrips: int = 0
+    activeItineraries: int = 0
+    completedItineraries: int = 0
+    
+    class Config:
+        from_attributes = True
+        
+
+class AdminProfileResponse(BaseModel):
+    id: int
+    userId: int
+    name: str
+    email: str
+    phoneNumber: Optional[str] = ""
+    position: Optional[str] = "Administrator"
+    department: Optional[str] = "Operations"
+    permissions: Optional[List[str]] = []
+    isActive: bool = True
+    createdAt: datetime
+    lastLogin: Optional[datetime] = None
+    
+    # Statistics
+    totalCustomers: int = 0
+    totalDrivers: int = 0
+    totalItineraries: int = 0
+    totalHotels: int = 0
+    
+    class Config:
+        from_attributes = True
+        
 
 # Review-related Schemas
 class HotelReviewBase(BaseModel):

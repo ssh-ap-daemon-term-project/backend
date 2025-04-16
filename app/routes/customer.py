@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql import and_, exists
 from typing import List, Optional, Dict, Any
 from ..database import SessionLocal
-from ..middleware import is_customer
+from ..middleware import is_customer, is_auth
 from ..schemas import HotelCreate, HotelUpdate, HotelResponse  
 from ..security import hash_password
 from datetime import datetime, timedelta
@@ -1000,3 +1000,49 @@ async def delete_review(
     db.commit()
     
     return {"message": "Review deleted successfully", "review_id": review_id}
+
+@router.get("/profile", response_model=schemas.CustomerProfileResponse)
+def get_customer_profile(current_user: models.User = Depends(is_auth), db: Session = Depends(get_db)):
+    """Get the profile for the currently logged-in customer"""
+    # Get the customer profile for the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer profile not found")
+    
+    # Count itineraries - adjust based on your actual model structure
+    # Since your Itinerary model doesn't have a 'status' field, we'll count them all for now
+    total_itineraries = db.query(models.Itinerary).filter(
+        models.Itinerary.customerId == customer.id
+    ).count()
+    # print all fields of current_user
+    print("current_user", current_user.__dict__)
+    
+    # Create response with basic information
+    response = {
+        "id": customer.id,
+        "userId": customer.userId,
+        "name": current_user.name,
+        "email": current_user.email,
+        "phoneNumber": current_user.phone,
+        "address": current_user.address,
+        "createdAt": customer.createdAt,
+        "isVerified": getattr(customer, "isVerified", False),
+        "totalTrips": total_itineraries,
+        "activeItineraries": 0,  # Default value
+        "completedItineraries": 0,  # Default value
+    }
+    
+    # Safely add other fields if they exist in the model
+    for field in ["dateOfBirth", "preferences"]:
+        if hasattr(customer, field):
+            response[field] = getattr(customer, field)
+        else:
+            # Add default values for missing fields
+            if field == "preferences":
+                response[field] = {}
+            elif field == "dateOfBirth":
+                response[field] = None
+            else:
+                response[field] = ""
+    
+    return response
