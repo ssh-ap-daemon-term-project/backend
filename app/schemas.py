@@ -262,6 +262,7 @@ class ReviewResponse(BaseModel):
         from_attributes = True
 
 class DriverCreate(BaseModel):
+    username : str
     name: str
     email: EmailStr
     password: str
@@ -362,6 +363,7 @@ class GetItineraryRoomItemResponse(BaseModel):
     roomId: int
     startDate: datetime
     endDate: datetime
+    isPaid: bool = False
     room: Optional[GetItineraryRoomResponse] = None
     
     class Config:
@@ -392,6 +394,25 @@ class ItineraryItemsResponse(BaseModel):
     
     class Config:
         from_attributes = True
+        
+    
+class DriverDetailResponse(BaseModel):
+    id: int
+    name: str
+    username : str
+    email: str
+    phone: str
+    address: Optional[str]
+    carModel: str
+    carNumber: str
+    carType: str
+    seatingCapacity: int
+    status: str
+    joinedDate: str
+    totalCompletedRides: int
+    
+    
+    
 
 # Input schema for updating room dates
 class RoomItemUpdate(BaseModel):
@@ -419,221 +440,34 @@ class UpdateItineraryRoomItemResponse(BaseModel):
     
     class Config:
         from_attributes = True
+        
+class RideBookingBase(BaseModel):
+    pickupLocation: str
+    dropoffLocation: str  # Note: frontend sends 'dropoffLocation'
+    pickupDateTime: datetime  # Note: frontend sends 'pickupDateTime'
+    numberOfPersons: Optional[int] = None
 
-# from pydantic import BaseModel, Field, EmailStr
-# from typing import List, Optional, Dict, Any, Union
-# from datetime import datetime
-# from enum import Enum
+class RideBookingCreate(RideBookingBase):
+    pass
 
-# # Enum definitions
-# class UserType(str, Enum):
-#     customer = "customer" 
-#     hotel = "hotel"
-#     driver = "driver"
-#     admin = "admin"
-
-# class RideStatus(str, Enum):
-#     pending = "pending"
-#     confirmed = "confirmed"
-#     completed = "completed" 
-#     cancelled = "cancelled"
-
-# class ItineraryStatus(str, Enum):
-#     upcoming = "upcoming"
-#     ongoing = "ongoing"
-#     completed = "completed"
-#     accepted = "accepted"
-
-# # Base schemas - User
-# class UserBase(BaseModel):
-#     username: str
-#     email: str
-#     phone: str
-#     name: str
-#     address: str
-#     userType: UserType
-
-# class UserCreate(UserBase):
-#     password: str
-
-# class UserResponse(UserBase):
-#     id: int
-#     createdAt: datetime
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Customer
-# class CustomerBase(BaseModel):
-#     dob: Optional[datetime] = None  
-#     gender: Optional[str] = None
-
-# class CustomerCreate(CustomerBase):
-#     userId: int
-
-# class CustomerResponse(CustomerBase):
-#     id: int
-#     userId: int
-#     createdAt: datetime
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Schedule Item
-# class ScheduleItemBase(BaseModel):
-#     startTime: datetime
-#     endTime: datetime
-#     location: str
-#     description: Optional[str] = None
-
-# class ScheduleItemCreate(ScheduleItemBase):
-#     pass
+class RideBookingResponse(BaseModel):
+    id: int
+    pickupLocation: str
+    dropoffLocation: str
+    pickupDateTime: datetime
+    numberOfPersons: int
+    price: float
+    status: str
+    driverName: str = "Pending..."
+    
+    class Config:
+        from_attributes = True
 
 class ScheduleItemUpdate(BaseModel):
     startTime: Optional[datetime] = None
     endTime: Optional[datetime] = None
     location: Optional[str] = None
     description: Optional[str] = None
-
-# class ScheduleItemResponse(ScheduleItemBase):
-#     id: int
-#     itinerary_id: int
-#     createdAt: datetime
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Room Item
-# class RoomItemBase(BaseModel):
-#     startDate: datetime
-#     endDate: datetime
-#     roomId: int
-
-# class RoomItemCreate(RoomItemBase):
-#     pass
-
-# class RoomItemUpdate(BaseModel):
-#     startDate: Optional[datetime] = None
-#     endDate: Optional[datetime] = None
-
-# class RoomItemResponse(BaseModel):
-#     id: int
-#     itinerary_id: int
-#     roomId: int
-#     startDate: datetime
-#     endDate: datetime
-#     createdAt: datetime
-#     # Additional fields from joined tables
-#     hotelName: Optional[str] = None
-#     roomName: Optional[str] = None
-#     roomType: Optional[str] = None
-#     city: Optional[str] = None
-#     pricePerNight: Optional[float] = None
-#     capacity: Optional[int] = None
-#     isPaid: bool = False
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Ride Booking
-# class RideBookingBase(BaseModel):
-#     driverId: Optional[int] = None
-#     pickupLocation: str
-#     dropLocation: str
-#     pickupTime: datetime
-#     numberOfPersons: int
-#     withDriverService: bool = False
-#     type: str  # taxi, premium, shuttle
-#     price: float
-
-# class RideBookingCreate(RideBookingBase):
-#     pass
-
-# class RideBookingUpdate(BaseModel):
-#     pickupLocation: Optional[str] = None
-#     dropLocation: Optional[str] = None
-#     pickupTime: Optional[datetime] = None
-#     withDriverService: Optional[bool] = None
-#     status: Optional[RideStatus] = None
-#     type: Optional[str] = None
-
-# class RideBookingResponse(RideBookingBase):
-#     id: int
-#     customerId: int
-#     itineraryId: int
-#     status: RideStatus
-#     createdAt: datetime
-#     dropTime: Optional[datetime] = None
-#     driverName: Optional[str] = None
-#     driverPhone: Optional[str] = None
-#     vehicleInfo: Optional[str] = None
-#     isReviewed: bool = False
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Itinerary
-# class ItineraryBase(BaseModel):
-#     name: str
-#     numberOfPersons: int = Field(gt=0)
-    
-# class ItineraryCreate(ItineraryBase):
-#     driverServiceRequested: bool = False
-
-# class ItineraryUpdate(BaseModel):
-#     name: Optional[str] = None
-#     numberOfPersons: Optional[int] = None
-#     status: Optional[ItineraryStatus] = None
-#     driverServiceRequested: Optional[bool] = None
-
-# class ItineraryResponse(ItineraryBase):
-#     id: int
-#     customerId: int
-#     status: ItineraryStatus = ItineraryStatus.upcoming
-#     createdAt: datetime
-#     driverServiceRequested: bool = False
-#     # Derived fields
-#     startDate: Optional[datetime] = None
-#     endDate: Optional[datetime] = None
-#     destinations: List[str] = []
-
-#     class Config:
-#         from_attributes = True
-
-# class ItineraryDetailResponse(ItineraryResponse):
-#     scheduleItems: List[ScheduleItemResponse] = []
-#     roomItems: List[RoomItemResponse] = []
-#     rideBookings: List[RideBookingResponse] = []
-
-#     class Config:
-#         from_attributes = True
-
-# # Combined response for items
-# class ItineraryItemsResponse(BaseModel):
-#     schedule_items: List[ScheduleItemResponse] = []
-#     room_items: List[RoomItemResponse] = []
-#     ride_bookings: List[RideBookingResponse] = []
-
-#     class Config:
-#         from_attributes = True
-
-# # Review schemas
-# class ReviewBase(BaseModel):
-#     rating: float
-#     description: str
-
-# class HotelReviewCreate(ReviewBase):
-#     hotelId: int
-
-# class HotelReviewResponse(ReviewBase):
-#     id: int
-#     customerId: int
-#     hotelId: int
-#     createdAt: datetime
-#     customerName: Optional[str] = None
-
-#     class Config:
-#         from_attributes = True
 
 # Room schemas for selection
 class CustomerRoomBase(BaseModel):
@@ -655,6 +489,151 @@ class CustomerRoomResponse(CustomerRoomBase):
 class CustomerAvailableRoomResponse(CustomerRoomResponse):
     image: Optional[str] = None
     amenities: List[str] = []
+    availableRoomsList: List[int] = []
     
     class Config:
         from_attributes = True
+
+# Request schema for booking a room
+class ItineraryRoomBookingRequest(BaseModel):
+    room_item_id: int
+    number_of_persons: int
+    customer_id: int
+
+# Response schema for successful booking
+class ItineraryRoomBookingResponse(BaseModel):
+    booking_id: int
+    room_item_id: int
+    start_date: datetime
+    end_date: datetime
+    room_type: str
+    hotel_name: str
+    number_of_persons: int
+    total_price: float
+    message: str = "Booking successful"
+
+# Error response schema
+class ErrorResponse(BaseModel):
+    detail: str
+
+class ItineraryBookingCancellationResponse(BaseModel):
+    message: str
+    booking_id: int
+
+class CustomerHotelResponse(BaseModel):
+    id: int
+    name: str
+    city: str
+    address: str
+    description: Optional[str] = None
+    basePrice: Optional[float] = None
+    rating: Optional[float] = None
+    imageUrl: Optional[str] = None
+    amenities: List[str] = []
+    
+    class Config:
+        from_attributes = True
+
+class HotelReviewResponse(BaseModel):
+    id: int
+    customerId: int
+    customerName: str
+    rating: float
+    description: str
+    createdAt: datetime
+    
+    class Config:
+        from_attributes = True
+
+class CustomerHotelByIdRoomResponse(BaseModel):
+    id: int
+    type: str
+    roomCapacity: int
+    basePrice: float
+    totalNumber: int
+    availableRoomsList: List[int] = []
+    
+    class Config:
+        from_attributes = True
+
+class CustomerHotelByIdResponse(BaseModel):
+    id: int
+    name: str
+    city: str
+    address: str
+    longitude: float
+    latitude: float
+    description: str
+    basePrice: Optional[float] = None
+    rating: Optional[float] = None
+    imageUrl: Optional[str] = None
+    # amenities: List[str] = []
+    rooms: List[CustomerHotelByIdRoomResponse] = []
+    reviews: List[HotelReviewResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+# Add to schemas.py
+class RoomBookingByRoomIdRequest(BaseModel):
+    room_id: int
+    start_date: datetime
+    end_date: datetime
+    number_of_persons: int
+
+class RoomBookingByRoomIdResponse(BaseModel):
+    booking_id: int
+    room_id: int
+    start_date: datetime
+    end_date: datetime
+    room_type: str
+    hotel_name: str
+    number_of_persons: int
+    total_price: float
+
+class BookingCancellationByBookingIdResponse(BaseModel):
+    message: str
+    booking_id: int
+
+# Customer Bookings Schemas
+class CustomerBookingResponse(BaseModel):
+    id: int
+    hotelId: int
+    hotelName: str
+    roomName: str
+    city: str
+    startDate: datetime
+    endDate: datetime
+    guests: int
+    totalPrice: float
+    status: str
+    image: Optional[str] = None
+
+class CancelBookingResponse(BaseModel):
+    message: str
+    booking_id: int
+
+class BookingReviewRequest(BaseModel):
+    booking_id: int
+    rating: int
+    comment: str
+
+# Review-related Schemas
+class HotelReviewBase(BaseModel):
+    hotelId: int
+    rating: int
+    comment: str
+
+class HotelReviewUpdate(BaseModel):
+    rating: Optional[int] = None
+    comment: Optional[str] = None
+
+class CustomerReviewResponse(BaseModel):
+    id: int
+    hotelId: int
+    hotelName: str
+    city: str
+    rating: int
+    comment: str
+    date: str
+    image: Optional[str] = None

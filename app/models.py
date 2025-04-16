@@ -1,5 +1,5 @@
 from .database import Base
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Date, Enum, TIMESTAMP, func, Text, Float, Boolean, ARRAY
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Date, Enum, TIMESTAMP, func, Text, Float, Boolean, ARRAY, CheckConstraint
 from sqlalchemy.orm import relationship
 
 class User(Base):
@@ -49,6 +49,10 @@ class Hotel(Base):
     description = Column(String(500), nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
+    __table_args__ = (
+        CheckConstraint('rating >= 0 AND rating <= 5', name='check_rating_range'),
+    )
+
     user = relationship("User", uselist=False, back_populates="hotel")
     rooms = relationship("Room", back_populates="hotel")
     reviews = relationship("HotelReview", back_populates="hotel")
@@ -81,6 +85,7 @@ class RoomBooking(Base):
 
     customer = relationship("Customer", uselist=False, back_populates="bookings")
     room = relationship("Room", uselist=False, back_populates="bookings")
+    roomItem = relationship("RoomItem", uselist=False, back_populates="roomBooking")
 
 class Driver(Base):
     __tablename__ = "drivers"
@@ -101,12 +106,11 @@ class RideBooking(Base):
 
     id = Column(Integer, primary_key=True)
     customerId = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    driverId = Column(Integer, ForeignKey("drivers.id"))
+    driverId = Column(Integer, ForeignKey("drivers.id") , nullable = True)
     itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)  # Itinerary
     pickupLocation = Column(String(100), nullable=False)
-    dropLocation = Column(String(100), nullable=False)
-    pickupTime = Column(DateTime, nullable=False)
-    dropTime = Column(DateTime, nullable=False)
+    dropoffLocation = Column(String(100), nullable=False)
+    pickupDateTime = Column(DateTime, nullable=False)
     numberOfPersons = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
     status = Column(Enum("pending", "confirmed", "completed", "cancelled", name="ride_status"), default="pending")
@@ -172,12 +176,14 @@ class RoomItem(Base):
     id = Column(Integer, primary_key=True)
     itineraryId = Column(Integer, ForeignKey("itineraries.id"), nullable=False)
     roomId = Column(Integer, ForeignKey("rooms.id"), nullable=False)
+    roomBookingId = Column(Integer, ForeignKey("roomBookings.id"))
     startDate = Column(DateTime, nullable=False)
     endDate = Column(DateTime, nullable=False)
     createdAt = Column(TIMESTAMP, server_default=func.now())
 
     itinerary = relationship("Itinerary", back_populates="roomItems")
     room = relationship("Room", uselist=False, back_populates="roomItems")
+    roomBooking = relationship("RoomBooking", uselist=False, back_populates="roomItem")
 
 class HotelReview(Base):
     __tablename__ = "hotel_reviews"

@@ -28,6 +28,9 @@ app.include_router(llmsql_routes.router, prefix="/api/llmsql", tags=["LLMSQL"])
 app.include_router(customer_itineraries.router, prefix="/api/customer_itineraries", tags=["Customer Itineraries"])
 app.include_router(customer.router, prefix="/api/customer", tags=["Customer"])
 app.include_router(travel_routes.router, prefix="/api/travel", tags=["Travel Planning"])
+app.include_router(driver.router, prefix="/api/driver", tags=["Driver"])
+
+# app.include_router(llmsql_routes.router)
 
 @app.get("/")
 def root():

@@ -6,6 +6,7 @@ from ..middleware import is_customer
 from .. import models, schemas
 from ..database import SessionLocal
 from sqlalchemy.orm import joinedload
+from sqlalchemy.sql import and_
 
 router = APIRouter()
 
@@ -65,19 +66,21 @@ def get_itineraries(
         )\
         .all()
         
-    # Process the itineraries to set the start and end dates based on room items
+    # Process the itineraries to set the start and end dates based on schedule items
     for itinerary in itineraries:
-        if itinerary.roomItems:
-            # Extract start date from earliest room booking
-            start_dates = [item.startDate for item in itinerary.roomItems]
+        if itinerary.scheduleItems:
+            # Extract start date from earliest schedule item
+            start_dates = [item.startTime for item in itinerary.scheduleItems]
+            # print all start dates
             if start_dates:
                 itinerary.startDate = min(start_dates)
                 
-            # Extract end date from latest room booking
-            end_dates = [item.endDate for item in itinerary.roomItems]
+            # Extract end date from latest schedule item
+            end_dates = [item.endTime for item in itinerary.scheduleItems]
             if end_dates:
                 itinerary.endDate = max(end_dates)
                 
+        if itinerary.roomItems:
             # Calculate destinations from room items
             destinations = set()
             for item in itinerary.roomItems:
@@ -107,21 +110,32 @@ async def get_available_rooms(
     if city:
         query = query.filter(models.Hotel.city == city)
     
-    # Filter by capacity
-    query = query.filter(models.Room.roomCapacity >= guests)
-    
     # Get all matching rooms
     rooms = query.all()
-    
-    # For each room, check if it's available during the specified dates
-    # This would require checking bookings and room items
-    
-    # For this example, we'll return all rooms as available
+
     available_rooms = []
     
     for room in rooms:
         hotel = db.query(models.Hotel).filter(models.Hotel.id == room.hotelId).first()
         hotel_user = db.query(models.User).filter(models.User.id == hotel.userId).first()
+
+        # find number of rooms available on specified days
+        room_bookings = db.query(models.RoomBooking).filter(
+            models.RoomBooking.roomId == room.id,
+            models.RoomBooking.startDate <= end_date,
+            models.RoomBooking.endDate > start_date
+        ).all()
+        
+        # Calculate number of rooms booked for each day from start_date to end_date in a list
+        booked_rooms = [0] * ((end_date - start_date).days + 1)
+        for booking in room_bookings:
+            start_index = max(0, (booking.startDate - start_date).days)
+            end_index = min((end_date - start_date).days, (booking.endDate - start_date).days - 1)
+            for i in range(start_index, end_index + 1):
+                booked_rooms[i] += 1
+
+        # calculate the number of available rooms list
+        available_rooms_list = [room.totalNumber - booked for booked in booked_rooms]
         
         # Create response
         room_data = {
@@ -133,6 +147,7 @@ async def get_available_rooms(
             "totalNumber": room.totalNumber,
             "hotelName": hotel_user.name,
             "city": hotel.city,
+            "availableRoomsList": available_rooms_list,
             "image": "/placeholder.svg?height=300&width=500",  # This would come from an assets table
             "amenities": ["Free WiFi", "TV", "Air Conditioning"]  # This would come from a room_amenities table
         }
@@ -172,15 +187,19 @@ def get_itinerary(
     destinations = set()
 
     room_items = []
-    for item in itinerary.roomItems:
-        if item.startDate:
-            start_dates.append(item.startDate)
-        if item.endDate:
-            end_dates.append(item.endDate)
+    for item in itinerary.scheduleItems:
+        if item.startTime:
+            start_dates.append(item.startTime)
+        if item.endTime:
+            end_dates.append(item.endTime)
 
+    for item in itinerary.roomItems:
         hotel_user_name = (
             item.room.hotel.user.name if item.room.hotel and item.room.hotel.user else "Unknown Hotel"
         )
+
+        # check if the roomBookkingId is null or not
+        isPaid = item.roomBookingId is not None
 
         room_items.append({
             "id": item.id,
@@ -188,6 +207,7 @@ def get_itinerary(
             "roomId": item.roomId,
             "startDate": item.startDate,
             "endDate": item.endDate,
+            "isPaid": isPaid,
             "room": {
                 "id": item.room.id,
                 "hotelId": item.room.hotelId,
@@ -200,9 +220,9 @@ def get_itinerary(
                     "userId": item.room.hotel.userId,
                     "name": hotel_user_name,
                     "city": item.room.hotel.city,
-                    "address": item.room.hotel.address if hasattr(item.room.hotel, "address") else None,
+                    "address": item.room.hotel.user.address if hasattr(item.room.hotel.user, "address") else None,
                     "description": item.room.hotel.description,
-                    "stars": None  # Set to None since your model has no 'stars' field
+                    "stars": item.room.hotel.rating  # Set to None since your model has no 'stars' field
                 }
             }
         })
@@ -232,7 +252,7 @@ def get_itinerary(
             }
             for item in itinerary.scheduleItems
         ],
-        "rideBookings": []  # Add this if needed
+        "rideBookings": []  # TODO: Add ride booking
     }
 
     return response_data
@@ -524,6 +544,7 @@ async def add_room_to_itinerary(
     new_room_item = models.RoomItem(
         itineraryId=itineraryId,
         roomId=room_item.roomId,
+        roomBookingId=None,
         startDate=room_item.startDate,
         endDate=room_item.endDate
     )
