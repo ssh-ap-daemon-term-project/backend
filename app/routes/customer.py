@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.orm import Session, aliased
-from sqlalchemy.sql import and_
+from sqlalchemy.sql import and_, exists
 from typing import List, Optional, Dict, Any
 from ..database import SessionLocal
-from ..middleware import is_customer
+from ..middleware import is_customer, is_auth
 from ..schemas import HotelCreate, HotelUpdate, HotelResponse  
 from ..security import hash_password
 from datetime import datetime, timedelta
@@ -13,8 +13,7 @@ from ..schemas import CustomerCreate, CustomerUpdate, CustomerResponse , RideBoo
 from ..models import User, RoomBooking, Hotel, Room, RoomItem, HotelReview, Customer, RideBooking, Itinerary, ScheduleItem, Driver
 from datetime import timedelta
 from .. import models
-from ..middleware import is_auth
-
+from sqlalchemy.orm import joinedload
 
 # Create router with prefix and tags
 router = APIRouter(
@@ -227,9 +226,8 @@ def cancel_room_booking(db: Session, booking_id: int, customer_id: int) -> dict:
     
     return {"message": "Room booking cancelled successfully", "booking_id": booking_id}
 
-# Add this route after your book-room endpoint
 @router.delete(
-    "/itinerary/room/cancel/{booking_id}",
+    "/itinerary/room/cancel/{room_item_id}",
     response_model=schemas.ItineraryBookingCancellationResponse,
     responses={
         404: {"model": schemas.ErrorResponse, "description": "Not Found"},
@@ -237,7 +235,7 @@ def cancel_room_booking(db: Session, booking_id: int, customer_id: int) -> dict:
     }
 )
 async def cancel_room_booking_endpoint(
-    booking_id: int,
+    room_item_id: int,
     db: Session = Depends(get_db),
     current_user = Depends(is_customer)
 ):
@@ -256,9 +254,557 @@ async def cancel_room_booking_endpoint(
             detail="Customer account not found"
         )
     
+    # Get the room item first
+    room_item = db.query(models.RoomItem).filter(models.RoomItem.id == room_item_id).first()
+    if not room_item:
+        raise HTTPException(
+            status_code=404,
+            detail="Room item not found"
+        )
+    
+    # Check if the room item belongs to an itinerary owned by this customer
+    itinerary = db.query(models.Itinerary).filter(
+        models.Itinerary.id == room_item.itineraryId,
+        models.Itinerary.customerId == customer.id
+    ).first()
+    
+    if not itinerary:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: This room item doesn't belong to your itinerary"
+        )
+    
+    # Check if the room is actually booked
+    if not room_item.roomBookingId:
+        raise HTTPException(
+            status_code=400,
+            detail="This room is not currently booked"
+        )
+    
     # Call the service function to handle cancellation
-    return cancel_room_booking(db, booking_id, customer.id)
+    return cancel_room_booking(db, room_item.roomBookingId, customer.id)
 
+@router.get("/all-hotels", response_model=List[schemas.CustomerHotelResponse])
+def get_hotels(
+    search: Optional[str] = None,
+    city: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    min_rating: Optional[float] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get a list of hotels with optional filtering.
+    """
+    # Join with the User table to efficiently access name/address data
+    query = db.query(models.Hotel, models.User).join(
+        models.User, models.Hotel.userId == models.User.id
+    )
+    
+    # Apply search filter on the joined tables
+    if search:
+        query = query.filter(
+            (models.User.name.ilike(f"%{search}%")) | 
+            (models.Hotel.city.ilike(f"%{search}%")) |
+            (models.User.address.ilike(f"%{search}%"))
+        )
+    
+    # Apply city filter
+    if city:
+        query = query.filter(models.Hotel.city.ilike(f"%{city}%"))
+    
+    # Apply price filters based on the Room prices, not the hotel's basePrice.
+    # This ensures that the hotel remains in the result if at least one room
+    # has a price between the given min_price and max_price.
+    if min_price is not None or max_price is not None:
+        room_conditions = []
+        if min_price is not None:
+            room_conditions.append(models.Room.basePrice >= min_price)
+        if max_price is not None:
+            room_conditions.append(models.Room.basePrice <= max_price)
+        
+        # Use a subquery to check for existence of a room type in the hotel that meets the conditions.
+        query = query.filter(
+            db.query(models.Room)
+              .filter(models.Room.hotelId == models.Hotel.id, *room_conditions)
+              .exists()
+        )
+    
+    # Apply rating filter
+    if min_rating is not None:
+        query = query.filter(models.Hotel.rating >= min_rating)
+    
+    # Get hotels with their associated users in a single query
+    results = query.all()
+    
+    # Format the response data
+    response_data = []
+    for hotel, user in results:
+        # Simulated amenity logic; replace with actual logic if needed.
+        amenities = ["Free WiFi", "Parking"] if hotel.id % 2 == 0 else ["Pool", "Gym"]
+        
+        hotel_dict = {
+            "id": hotel.id,
+            "name": user.name,  # Name from User model
+            "city": hotel.city,
+            "address": user.address,  # Address from User model
+            "description": hotel.description,
+            # basePrice can still be set here if needed; otherwise, it might be omitted.
+            "basePrice": None,
+            "rating": float(hotel.rating) if hotel.rating else None,
+            "imageUrl": hotel.imageUrl if hasattr(hotel, 'imageUrl') else None,
+            "amenities": amenities
+        }
+        response_data.append(hotel_dict)
+    
+    return response_data
+
+@router.get("/hotel/{hotel_id}", response_model=schemas.CustomerHotelByIdResponse)
+def get_hotel(hotel_id: int, db: Session = Depends(get_db)):
+    """
+    Get detailed information about a specific hotel including reviews.
+    """
+    # Get both the hotel and its associated user in a single query
+    result = db.query(models.Hotel, models.User).join(
+        models.User, models.Hotel.userId == models.User.id
+    ).filter(models.Hotel.id == hotel_id).first()
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Hotel not found")
+    
+    hotel, user = result
+    
+    # Get the hotel reviews with customer and user information
+    reviews_query = db.query(
+        models.HotelReview, 
+        models.Customer, 
+        models.User
+    ).join(
+        models.Customer, models.HotelReview.customerId == models.Customer.id
+    ).join(
+        models.User, models.Customer.userId == models.User.id
+    ).filter(
+        models.HotelReview.hotelId == hotel_id
+    ).order_by(
+        models.HotelReview.createdAt.desc()
+    ).all()
+    
+    # Format the reviews
+    reviews = []
+    for review, customer, reviewer_user in reviews_query:
+        reviews.append({
+            "id": review.id,
+            "customerId": customer.id,
+            "customerName": reviewer_user.name,
+            "rating": float(review.rating),
+            "description": review.description,
+            "createdAt": review.createdAt.isoformat() if review.createdAt else None
+        })
+    
+    # Get all rooms for this hotel
+    rooms = db.query(models.Room).filter(models.Room.hotelId == hotel_id).all()
+
+    # Format the rooms
+    rooms_list = []
+    for room in rooms:
+        # find number of rooms available on specified days
+        start_date = datetime.utcnow()
+        end_date = start_date + timedelta(days=60)  # Example: next 60 days
+        room_bookings = db.query(models.RoomBooking).filter(
+            models.RoomBooking.roomId == room.id,
+            models.RoomBooking.startDate <= end_date,
+            models.RoomBooking.endDate > start_date
+        ).all()
+        
+        # Calculate number of rooms booked for each day from start_date to end_date in a list
+        booked_rooms = [0] * ((end_date - start_date).days + 1)
+        for booking in room_bookings:
+            start_index = max(0, (booking.startDate - start_date).days)
+            end_index = min((end_date - start_date).days, (booking.endDate - start_date).days - 1)
+            for i in range(start_index, end_index + 1):
+                booked_rooms[i] += 1
+        print("booked_rooms", booked_rooms)
+
+        # calculate the number of available rooms list
+        available_rooms_list = [room.totalNumber - booked for booked in booked_rooms]
+        print("available_rooms_list", available_rooms_list)
+        
+        rooms_list.append({
+            "id": room.id,
+            "type": room.type,
+            "basePrice": float(room.basePrice) if hasattr(room, 'basePrice') and room.basePrice else None,
+            "roomCapacity": room.roomCapacity,
+            "totalNumber": room.totalNumber,
+            "availableRoomsList": available_rooms_list
+        })
+    
+    # Simulated amenity logic; replace with actual logic if needed.
+    
+    # Format and return the hotel detail response with reviews
+    hotel_dict = {
+        "id": hotel.id,
+        "name": user.name,  # Name from User model
+        "city": hotel.city,
+        "address": user.address,  # Address from User model
+        "latitude": hotel.latitude,
+        "longitude": hotel.longitude,
+        "description": hotel.description,
+        "basePrice": float(hotel.basePrice) if hasattr(hotel, 'basePrice') and hotel.basePrice else None,
+        "rating": float(hotel.rating) if hotel.rating else None,
+        "imageUrl": hotel.imageUrl if hasattr(hotel, 'imageUrl') else None,
+        "rooms": rooms_list,
+        # "amenities": amenities,
+        "reviews": reviews  # Add the reviews to the response
+    }
+    
+    return hotel_dict
+
+# const response = await bookRoomByRoomId({
+#         roomId: selectedRoom.id,
+#         startDate: bookingDates.from.toISOString(),
+#         endDate: bookingDates.to.toISOString(),
+#         numberOfPersons: guests
+#       })
+# Book room by room id
+# Book room by room id helper function
+def book_room_by_room_id(db: Session, room_id: int, start_date: datetime, end_date: datetime, number_of_persons: int, customer_id: int):
+    """
+    Book a room with the specified details.
+    """
+    # First, ensure all datetime objects are timezone-consistent
+    # Convert to timezone-naive if input dates have timezone info
+    if start_date.tzinfo is not None:
+        start_date = start_date.replace(tzinfo=None)
+    if end_date.tzinfo is not None:
+        end_date = end_date.replace(tzinfo=None)
+    
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if not room:
+        raise HTTPException(
+            status_code=404,
+            detail="Room not found"
+        )
+    
+    # Check room capacity
+    if number_of_persons > room.roomCapacity:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Number of persons ({number_of_persons}) exceeds room capacity ({room.roomCapacity})"
+        )
+    
+    # Check if the room is available for the specified dates
+    existing_bookings = db.query(models.RoomBooking).filter(
+        models.RoomBooking.roomId == room_id,
+        models.RoomBooking.startDate < end_date,
+        models.RoomBooking.endDate > start_date
+    ).all()
+    
+    # Calculate availability for each day
+    current_date = start_date
+    unavailable_dates = []
+    
+    while current_date < end_date:
+        # Count bookings that include this day
+        bookings_count = 0
+        for booking in existing_bookings:
+            # Make booking dates timezone-naive for comparison
+            booking_start = booking.startDate
+            booking_end = booking.endDate
+            
+            if booking_start.tzinfo is not None:
+                booking_start = booking_start.replace(tzinfo=None)
+            if booking_end.tzinfo is not None:
+                booking_end = booking_end.replace(tzinfo=None)
+                
+            if booking_start <= current_date < booking_end:
+                bookings_count += 1
+        
+        # Check if there's at least one room available
+        if bookings_count >= room.totalNumber:
+            unavailable_dates.append(current_date.strftime("%Y-%m-%d"))
+        
+        current_date += timedelta(days=1)
+    
+    # If any days are unavailable, return an error
+    if unavailable_dates:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Room not available for the following dates: {', '.join(unavailable_dates)}"
+        )
+    
+    # All checks passed, create a new booking
+    room_booking = models.RoomBooking(
+        customerId=customer_id,
+        roomId=room_id,
+        startDate=start_date,
+        endDate=end_date,
+        numberOfPersons=number_of_persons,
+    )
+    
+    db.add(room_booking)
+    db.commit()
+    db.refresh(room_booking)
+    
+    # Calculate price (basePrice * number of days)
+    days = (end_date - start_date).days
+    total_price = float(room.basePrice) * days
+    
+    # Get hotel name for response
+    hotel = db.query(models.Hotel).join(models.User).filter(models.Hotel.id == room.hotelId).first()
+    hotel_name = db.query(models.User).filter(models.User.id == hotel.userId).first().name
+    
+    # Return success response
+    return {
+        "booking_id": room_booking.id,
+        "room_id": room_id,
+        "start_date": start_date,
+        "end_date": end_date,
+        "room_type": room.type,
+        "hotel_name": hotel_name,
+        "number_of_persons": number_of_persons,
+        "total_price": total_price
+    }
+
+@router.post("/book-room", response_model=schemas.RoomBookingByRoomIdResponse)
+async def book_room_by_room_id_endpoint(booking_data: schemas.RoomBookingByRoomIdRequest, db: Session = Depends(get_db), current_user = Depends(is_customer)):
+    """
+    Book a room with the specified details.
+    """
+    # Get the customer ID associated with the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=404,
+            detail="Customer account not found"
+        )
+    
+    return book_room_by_room_id(
+        db, 
+        booking_data.room_id, 
+        booking_data.start_date, 
+        booking_data.end_date, 
+        booking_data.number_of_persons, 
+        customer.id
+    )
+
+# # Cancel room booking by booking ID
+# def cancel_room_booking_by_id(db: Session, booking_id: int, customer_id: int) -> dict:
+#     """
+#     Cancels an existing room booking by booking ID
+    
+#     Args:
+#         db: Database session
+#         booking_id: ID of the booking to cancel
+#         customer_id: ID of the customer making the request
+        
+#     Returns:
+#         dict: Confirmation of cancellation
+        
+#     Raises:
+#         HTTPException: If booking doesn't exist or doesn't belong to the customer
+#     """
+#     # Find the booking
+#     booking = db.query(models.RoomBooking).filter(models.RoomBooking.id == booking_id).first()
+    
+#     if not booking:
+#         raise HTTPException(status_code=404, detail="Booking not found")
+    
+#     # Verify ownership
+#     if booking.customerId != customer_id:
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Access denied: This booking doesn't belong to you"
+#         )
+    
+#     # Find any room item associated with this booking (to clean up references)
+#     room_item = db.query(models.RoomItem).filter(models.RoomItem.roomBookingId == booking_id).first()
+    
+#     if room_item:
+#         # Remove the booking reference from the room item
+#         room_item.roomBookingId = None
+    
+#     # Delete the booking
+#     db.delete(booking)
+#     db.commit()
+    
+#     return {"message": "Room booking cancelled successfully", "booking_id": booking_id}
+
+# @router.delete(
+#     "/cancel-booking/{booking_id}",
+#     response_model=schemas.BookingCancellationByBookingIdResponse,
+#     responses={
+#         404: {"model": schemas.ErrorResponse, "description": "Not Found"},
+#         403: {"model": schemas.ErrorResponse, "description": "Access Denied"}
+#     }
+# )
+# async def cancel_room_booking_by_id_endpoint(
+#     booking_id: int,
+#     db: Session = Depends(get_db),
+#     current_user = Depends(is_customer)
+# ):
+#     """
+#     Cancel a room booking by booking ID.
+    
+#     This endpoint allows customers to cancel their existing room bookings.
+#     The room will be freed up for other customers to book.
+#     """
+    
+#     # Get the customer ID associated with the current user
+#     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+#     if not customer:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Customer account not found"
+#         )
+    
+#     return cancel_room_booking_by_id(db, booking_id, customer.id)
+
+# Get all customer bookings
+@router.get("/bookings", response_model=List[schemas.CustomerBookingResponse])
+async def get_customer_bookings(
+    db: Session = Depends(get_db),
+    current_user = Depends(is_customer)
+):
+    """
+    Get all bookings for the currently logged in customer.
+    """
+    # Get the customer ID associated with the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=404,
+            detail="Customer account not found"
+        )
+    
+    # Get all bookings for this customer
+    bookings = db.query(models.RoomBooking).filter(
+        models.RoomBooking.customerId == customer.id
+    ).order_by(models.RoomBooking.startDate.desc()).all()
+    
+    result = []
+    
+    for booking in bookings:
+        # Get room info
+        room = db.query(models.Room).filter(models.Room.id == booking.roomId).first()
+        if not room:
+            raise HTTPException(
+                status_code=404,
+                detail="Room not found"
+            )
+        
+        # Get hotel info
+        hotel = db.query(models.Hotel).filter(models.Hotel.id == room.hotelId).first()
+        if not hotel:
+            raise HTTPException(
+                status_code=404,
+                detail="Hotel not found"
+            )
+        
+        # Get hotel name from user table
+        hotel_user = db.query(models.User).filter(models.User.id == hotel.userId).first()
+        if not hotel_user:
+            raise HTTPException(
+                status_code=404,
+                detail="Hotel user not found"
+            )
+        
+        # Determine booking status
+        status = "upcoming"
+        now = datetime.utcnow()
+        
+        if booking.endDate < now:
+            status = "completed"
+        
+        # Calculate total price
+        days = (booking.endDate - booking.startDate).days
+        total_price = float(room.basePrice) * days
+        
+        # Get the first hotel image if available
+        image = hotel.imageUrl if hasattr(hotel, 'imageUrl') and hotel.imageUrl else None
+        
+        result.append({
+            "id": booking.id,
+            "hotelId": hotel.id,
+            "hotelName": hotel_user.name,
+            "roomName": room.type,
+            "city": hotel.city,
+            "startDate": booking.startDate,
+            "endDate": booking.endDate,
+            "guests": booking.numberOfPersons,
+            "totalPrice": total_price,
+            "status": status,
+            "image": image
+        })
+    
+    return result
+
+# Cancel a booking
+@router.post("/bookings/{booking_id}/cancel", response_model=schemas.CancelBookingResponse)
+async def cancel_customer_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(is_customer)
+):
+    """
+    Cancel a specific booking.
+    """
+    # Get the customer ID associated with the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer profile not found"
+        )
+    
+    # Check if the itinerary exists and belongs to this customer
+    itinerary = db.query(Itinerary).filter(
+        Itinerary.id == itinerary_id,
+        Itinerary.customerId == customer.id
+    ).first()
+    
+    if not itinerary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Itinerary not found or you don't have access"
+        )
+    
+    try:
+                
+        # Create the ride booking - note driverId is NULL initially
+        new_ride = RideBooking(
+            pickupLocation=ride_data.pickupLocation,
+            dropLocation=ride_data.dropoffLocation,
+            pickupDateTime=ride_data.pickupDateTime,
+            numberOfPersons=ride_data.numberOfPersons if ride_data.numberOfPersons else itinerary.numberOfPersons,
+            price=100,                                  #by default 100
+            status="pending",  # Set initial status as pending
+            customerId=customer.id,
+            itineraryId=itinerary_id
+        )
+        
+        db.add(new_ride)
+        db.commit()
+        db.refresh(new_ride)
+        
+        # Format the response
+        return {
+            "id": new_ride.id,
+            "pickupLocation": new_ride.pickupLocation,
+            "dropLocation": new_ride.dropLocation,
+            "pickupTime": new_ride.pickupTime,
+            "dropTime": new_ride.dropTime,
+            "numberOfPersons": new_ride.numberOfPersons,
+            "price": float(new_ride.price),  # Convert Decimal to float if needed
+            "status": new_ride.status,
+            "driverName": "Pending...",
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to book ride: {str(e)}"
+        )
 
 @router.get("/profile", response_model=schemas.CustomerProfileResponse)
 def get_customer_profile(current_user: models.User = Depends(is_auth), db: Session = Depends(get_db)):
