@@ -939,45 +939,45 @@ def book_ride_for_itinerary(
     
 #     return response
 
-# @router.delete("/{itineraryId}/rides/{ride_id}", status_code=status.HTTP_204_NO_CONTENT)
-# async def cancel_ride(
-#     itineraryId: int,
-#     ride_id: int,
-#     current_user: models.User = Depends(is_customer),
-#     db: Session = Depends(get_db)
-# ):
-#     # Verify itinerary belongs to the current user
-#     customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
-#     itinerary = db.query(models.Itinerary).filter(
-#         models.Itinerary.id == itineraryId,
-#         models.Itinerary.customerId == customer.id
-#     ).first()
+@router.delete("/{itineraryId}/rides/{ride_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_ride(
+    itineraryId: int,
+    ride_id: int,
+    current_user: models.User = Depends(is_customer),
+    db: Session = Depends(get_db)
+):
+    # Verify itinerary belongs to the current user
+    customer = db.query(models.Customer).filter(models.Customer.userId == current_user.id).first()
+    itinerary = db.query(models.Itinerary).filter(
+        models.Itinerary.id == itineraryId,
+        models.Itinerary.customerId == customer.id
+    ).first()
     
-#     if not itinerary:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Itinerary with ID {itineraryId} not found"
-#         )
+    if not itinerary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Itinerary with ID {itineraryId} not found"
+        )
     
-#     # Get the ride
-#     ride_query = db.query(models.RideBooking).filter(
-#         models.RideBooking.id == ride_id,
-#         models.RideBooking.itineraryId == itineraryId,
-#         models.RideBooking.customerId == customer.id
-#     )
+    # Get the ride
+    ride_query = db.query(models.RideBooking).filter(
+        models.RideBooking.id == ride_id,
+        models.RideBooking.itineraryId == itineraryId,
+        models.RideBooking.customerId == customer.id
+    )
     
-#     ride = ride_query.first()
-#     if not ride:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Ride with ID {ride_id} not found"
-#         )
+    ride = ride_query.first()
+    if not ride:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Ride with ID {ride_id} not found"
+        )
     
-#     # Update status to cancelled instead of deleting
-#     ride.status = "cancelled"
-#     db.commit()
+    # Update status to cancelled instead of deleting
+    ride.status = "cancelled"
+    db.commit()
     
-#     return None
+    return None
 
 # # Driver service endpoint
 # @router.put("/{itineraryId}/driver-service", response_model=schemas.ItineraryResponse)

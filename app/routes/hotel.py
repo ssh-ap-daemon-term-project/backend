@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends , HTTPException
+from fastapi import APIRouter, Depends , HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from ..models import User, RoomBooking, Room
@@ -7,7 +7,7 @@ from ..middleware import is_hotel
 from datetime import datetime, timedelta    
 from sqlalchemy import func, cast, Numeric, Float
 from .. import schemas, models
-from typing import List
+from typing import List, Optional
 from ..schemas import (
     HotelRoomOverviewResponse,
     OccupancyRateResponse,
@@ -271,44 +271,6 @@ def get_recent_bookings(db: Session = Depends(get_db)):
     
     return recent_bookings
 
-# @router.get("/room-overview", response_model=RoomOverviewResponse , status_code= 200)
-# def get_room_overview(db: Session = Depends(get_db)):
-#     """
-#     Get a comprehensive overview of the hotel's key metrics
-#     Returns a summary of various dashboard elements
-#     """
-#     today = datetime.utcnow()
-    
-#     # Get room overview data
-#     room_overview = get_hotelRoom(db)
-    
-#     # Get occupancy rate data
-#     occupancy_rate = get_occupancy_rate(db)
-    
-#     # Get revenue data
-#     revenue = get_revenue(db)
-    
-#     # Count of active bookings
-#     active_bookings_count = db.query(RoomBooking).filter(
-#         RoomBooking.endDate >= today
-#     ).count()
-    
-#     # Count of recent bookings (last 7 days)
-#     week_ago = today - timedelta(days=7)
-#     recent_bookings_count = db.query(RoomBooking).filter(
-#         RoomBooking.createdAt >= week_ago
-#     ).count()
-    
-#     return {
-#         "room_overview": room_overview,
-#         "occupancy_rate": occupancy_rate,
-#         "revenue": revenue,
-#         "recent_bookings_count": recent_bookings_count,
-#         "active_bookings_count": active_bookings_count
-#     }
-    
-    
-    
 # API for adding the new Room-Type
 def check_room_type_exists(db: Session, hotel_id: int, room_type: str):
     """Check if a room of this type already exists for the hotel"""
@@ -319,18 +281,10 @@ def check_room_type_exists(db: Session, hotel_id: int, room_type: str):
     
 def create_room(db: Session, room_data: schemas.RoomCreate):
     """Create a new room"""
-    # Create arrays for the room data - 60 days
-    # price_array = [room_data.basePrice] * 60
-    # available_array = [room_data.totalNumber] * 60
-    # booked_array = [0] * 60
-    
     new_room = models.Room(
         type=room_data.type,
         roomCapacity=room_data.roomCapacity,
         totalNumber=room_data.totalNumber,
-        # availableNumber=available_array,
-        # bookedNumber=booked_array,
-        # price=price_array,
         hotelId=room_data.hotelId,
         basePrice=room_data.basePrice
     )
@@ -426,7 +380,6 @@ def get_room_overview(user_id: int = 1, db: Session = Depends(get_db)):
             "total_no": room.totalNumber,
             "type": room.type.capitalize(),  # Capitalize for display
             "room_capacity": room.roomCapacity,
-            # "no_booked": room.bookedNumber,
             "no_available": available_count,
             "price": room.basePrice,
             "hotelfk": room.hotelId
@@ -528,7 +481,6 @@ def get_hotel_bookings(user_id: int = 1, db: Session = Depends(get_db)):
     return formatted_bookings
 
 
-# Then add this endpoint to your hotel.py file
 @router.get("/hotel-reviews", response_model=List[schemas.ReviewResponse])
 def get_hotel_reviews(user_id: int = 1, db: Session = Depends(get_db)):
     """
@@ -596,3 +548,153 @@ def get_hotel_reviews(user_id: int = 1, db: Session = Depends(get_db)):
         formatted_reviews.append(formatted_review)
     
     return formatted_reviews
+
+@router.get("/profile/{user_id}", response_model=schemas.HotelProfileResponse)
+def get_hotel_profile(user_id: int, db: Session = Depends(get_db)):
+    """
+    Get hotel profile information including rooms, ratings and stats
+    """
+    # First find the hotel with this user ID
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    if not hotel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Hotel not found for this user"
+        )
+    
+    # Get the user information
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Get rooms for this hotel
+    rooms = db.query(models.Room).filter(models.Room.hotelId == hotel.id).all()
+    
+    # Get reviews
+    reviews = db.query(
+        models.HotelReview,
+        models.User.name.label("customerName")
+    ).join(
+        models.Customer, models.HotelReview.customerId == models.Customer.id
+    ).join(
+        models.User, models.Customer.userId == models.User.id
+    ).filter(
+        models.HotelReview.hotelId == hotel.id
+    ).all()
+    
+    formatted_reviews = []
+    for review, customer_name in reviews:
+        formatted_reviews.append({
+            "id": review.id,
+            "rating": review.rating,
+            "comment": review.description,
+            "customerName": customer_name,
+            "date": review.createdAt.isoformat()
+        })
+    
+    # Calculate stats
+    total_bookings = db.query(func.count(models.RoomBooking.id))\
+        .join(models.Room, models.RoomBooking.roomId == models.Room.id)\
+        .filter(models.Room.hotelId == hotel.id).scalar() or 0
+    
+    # Calculate occupancy rate - this is a simplified version
+    total_rooms = len(rooms)
+    occupancy_rate = 0
+    if total_rooms > 0:
+        booked_rooms = db.query(func.count(models.RoomBooking.id))\
+            .join(models.Room, models.RoomBooking.roomId == models.Room.id)\
+            .filter(
+                models.Room.hotelId == hotel.id,
+                models.RoomBooking.startDate <= datetime.now(),
+                models.RoomBooking.endDate >= datetime.now()
+            ).scalar() or 0
+        occupancy_rate = round((booked_rooms / total_rooms) * 100)
+    
+    # Prepare room data
+    formatted_rooms = []
+    for room in rooms:
+        formatted_rooms.append({
+            "id": room.id,
+            "type": room.type,
+            "basePrice": float(room.basePrice),
+            "roomCapacity": room.roomCapacity,
+            "image": None  # You can add image URL later if available
+        })
+    
+    # Construct the response
+    response = {
+        "id": hotel.id,
+        "userId": user_id,
+        "name": user.name,
+        "email": user.email,
+        "phone": user.phone,
+        "address": user.address,
+        "city": hotel.city,
+        "description": hotel.description,
+        "rating": hotel.rating,
+        "totalRooms": total_rooms,
+        "rooms": formatted_rooms,
+        "reviews": formatted_reviews,
+        "stats": {
+            "totalBookings": total_bookings,
+            "occupancyRate": occupancy_rate
+        },
+        "amenities": hotel.amenities.split(',') if hotel.amenities else []
+    }
+    
+    return response
+
+@router.put("/profile/{user_id}", response_model=schemas.HotelProfileResponse)
+def update_hotel_profile(user_id: int, profile_data: schemas.HotelProfileUpdate, db: Session = Depends(get_db)):
+    """
+    Update hotel profile information
+    """
+    # First find the hotel with this user ID
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    if not hotel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Hotel not found for this user"
+        )
+    
+    # Get the user information
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Update user fields
+    if profile_data.name:
+        user.name = profile_data.name
+    if profile_data.email:
+        user.email = profile_data.email
+    if profile_data.phone:
+        user.phone = profile_data.phone
+    if profile_data.address:
+        user.address = profile_data.address
+    
+    # Update hotel fields
+    if profile_data.city:
+        hotel.city = profile_data.city
+    if profile_data.description:
+        hotel.description = profile_data.description
+    
+    # Update amenities - convert from list to comma-separated string
+    if profile_data.amenities is not None:
+        hotel.amenities = ','.join(profile_data.amenities)
+    
+    db.commit()
+    
+    # Return the updated profile using the get_hotel_profile endpoint logic
+    # Reload from database
+    db.refresh(hotel)
+    db.refresh(user)
+    
+    # Call the get function to return the updated profile with all associated data
+    return get_hotel_profile(user_id, db)
+

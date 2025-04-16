@@ -302,6 +302,13 @@ class ScheduleItemResponse(ScheduleItemBase):
     class Config:
         from_attributes = True
 
+# Add this schema for updating schedule items
+class ScheduleItemUpdate(BaseModel):
+    description: Optional[str] = None
+    location: Optional[str] = None
+    startTime: Optional[datetime] = None
+    endTime: Optional[datetime] = None
+
 class RoomItemBase(BaseModel):
     roomId: int
     startDate: datetime
@@ -338,7 +345,7 @@ class RideBookingResponse(BaseModel):
     driverName: str = "Pending..."
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ItineraryResponse(ItineraryBase):
@@ -347,7 +354,7 @@ class ItineraryResponse(ItineraryBase):
     createdAt: datetime
     roomItems: List[RoomItemResponse] = []
     scheduleItems: List[ScheduleItemResponse] = []
-    rideBookings: List[RideBookingResponse] = []
+    # rideBookings: List[RideBookingResponse] = []
     startDate: Optional[datetime] = None
     endDate: Optional[datetime] = None
     destinations: List[str] = []
@@ -463,223 +470,50 @@ class UpdateItineraryRoomItemResponse(BaseModel):
     
     class Config:
         from_attributes = True
-        
 
+# Hotel Profile Schemas
+class HotelRoom(BaseModel):
+    id: int
+    type: str
+    basePrice: float
+    roomCapacity: int
+    image: Optional[str] = None
 
-# from pydantic import BaseModel, Field, EmailStr
-# from typing import List, Optional, Dict, Any, Union
-# from datetime import datetime
-# from enum import Enum
+class HotelReviewDetail(BaseModel):
+    id: int
+    rating: int
+    comment: str
+    customerName: str
+    date: str
 
-# # Enum definitions
-# class UserType(str, Enum):
-#     customer = "customer" 
-#     hotel = "hotel"
-#     driver = "driver"
-#     admin = "admin"
+class HotelStats(BaseModel):
+    totalBookings: int
+    occupancyRate: int
 
-# class RideStatus(str, Enum):
-#     pending = "pending"
-#     confirmed = "confirmed"
-#     completed = "completed" 
-#     cancelled = "cancelled"
-
-# class ItineraryStatus(str, Enum):
-#     upcoming = "upcoming"
-#     ongoing = "ongoing"
-#     completed = "completed"
-#     accepted = "accepted"
-
-# # Base schemas - User
-# class UserBase(BaseModel):
-#     username: str
-#     email: str
-#     phone: str
-#     name: str
-#     address: str
-#     userType: UserType
-
-# class UserCreate(UserBase):
-#     password: str
-
-# class UserResponse(UserBase):
-#     id: int
-#     createdAt: datetime
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Customer
-# class CustomerBase(BaseModel):
-#     dob: Optional[datetime] = None  
-#     gender: Optional[str] = None
-
-# class CustomerCreate(CustomerBase):
-#     userId: int
-
-# class CustomerResponse(CustomerBase):
-#     id: int
-#     userId: int
-#     createdAt: datetime
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Schedule Item
-# class ScheduleItemBase(BaseModel):
-#     startTime: datetime
-#     endTime: datetime
-#     location: str
-#     description: Optional[str] = None
-
-# class ScheduleItemCreate(ScheduleItemBase):
-#     pass
-
-class ScheduleItemUpdate(BaseModel):
-    startTime: Optional[datetime] = None
-    endTime: Optional[datetime] = None
-    location: Optional[str] = None
+class HotelProfileResponse(BaseModel):
+    id: int
+    userId: int
+    name: str
+    email: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: str
     description: Optional[str] = None
+    rating: Optional[float] = None
+    totalRooms: int
+    rooms: List[HotelRoom]
+    reviews: List[HotelReviewDetail]
+    stats: HotelStats
+    amenities: List[str]
 
-# class ScheduleItemResponse(ScheduleItemBase):
-#     id: int
-#     itinerary_id: int
-#     createdAt: datetime
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Room Item
-# class RoomItemBase(BaseModel):
-#     startDate: datetime
-#     endDate: datetime
-#     roomId: int
-
-# class RoomItemCreate(RoomItemBase):
-#     pass
-
-# class RoomItemUpdate(BaseModel):
-#     startDate: Optional[datetime] = None
-#     endDate: Optional[datetime] = None
-
-# class RoomItemResponse(BaseModel):
-#     id: int
-#     itinerary_id: int
-#     roomId: int
-#     startDate: datetime
-#     endDate: datetime
-#     createdAt: datetime
-#     # Additional fields from joined tables
-#     hotelName: Optional[str] = None
-#     roomName: Optional[str] = None
-#     roomType: Optional[str] = None
-#     city: Optional[str] = None
-#     pricePerNight: Optional[float] = None
-#     capacity: Optional[int] = None
-#     isPaid: bool = False
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Ride Booking
-# class RideBookingBase(BaseModel):
-#     driverId: Optional[int] = None
-#     pickupLocation: str
-#     dropLocation: str
-#     pickupTime: datetime
-#     numberOfPersons: int
-#     withDriverService: bool = False
-#     type: str  # taxi, premium, shuttle
-#     price: float
-
-# class RideBookingCreate(RideBookingBase):
-#     pass
-
-# class RideBookingUpdate(BaseModel):
-#     pickupLocation: Optional[str] = None
-#     dropLocation: Optional[str] = None
-#     pickupTime: Optional[datetime] = None
-#     withDriverService: Optional[bool] = None
-#     status: Optional[RideStatus] = None
-#     type: Optional[str] = None
-
-# class RideBookingResponse(RideBookingBase):
-#     id: int
-#     customerId: int
-#     itineraryId: int
-#     status: RideStatus
-#     createdAt: datetime
-#     dropTime: Optional[datetime] = None
-#     driverName: Optional[str] = None
-#     driverPhone: Optional[str] = None
-#     vehicleInfo: Optional[str] = None
-#     isReviewed: bool = False
-
-#     class Config:
-#         from_attributes = True
-
-# # Base schemas - Itinerary
-# class ItineraryBase(BaseModel):
-#     name: str
-#     numberOfPersons: int = Field(gt=0)
-    
-# class ItineraryCreate(ItineraryBase):
-#     driverServiceRequested: bool = False
-
-# class ItineraryUpdate(BaseModel):
-#     name: Optional[str] = None
-#     numberOfPersons: Optional[int] = None
-#     status: Optional[ItineraryStatus] = None
-#     driverServiceRequested: Optional[bool] = None
-
-# class ItineraryResponse(ItineraryBase):
-#     id: int
-#     customerId: int
-#     status: ItineraryStatus = ItineraryStatus.upcoming
-#     createdAt: datetime
-#     driverServiceRequested: bool = False
-#     # Derived fields
-#     startDate: Optional[datetime] = None
-#     endDate: Optional[datetime] = None
-#     destinations: List[str] = []
-
-#     class Config:
-#         from_attributes = True
-
-# class ItineraryDetailResponse(ItineraryResponse):
-#     scheduleItems: List[ScheduleItemResponse] = []
-#     roomItems: List[RoomItemResponse] = []
-#     rideBookings: List[RideBookingResponse] = []
-
-#     class Config:
-#         from_attributes = True
-
-# # Combined response for items
-# class ItineraryItemsResponse(BaseModel):
-#     schedule_items: List[ScheduleItemResponse] = []
-#     room_items: List[RoomItemResponse] = []
-#     ride_bookings: List[RideBookingResponse] = []
-
-#     class Config:
-#         from_attributes = True
-
-# # Review schemas
-# class ReviewBase(BaseModel):
-#     rating: float
-#     description: str
-
-# class HotelReviewCreate(ReviewBase):
-#     hotelId: int
-
-# class HotelReviewResponse(ReviewBase):
-#     id: int
-#     customerId: int
-#     hotelId: int
-#     createdAt: datetime
-#     customerName: Optional[str] = None
-
-#     class Config:
-#         from_attributes = True
+class HotelProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    description: Optional[str] = None
+    amenities: Optional[List[str]] = None
 
 # Room schemas for selection
 class CustomerRoomBase(BaseModel):
@@ -731,3 +565,65 @@ class ErrorResponse(BaseModel):
 class ItineraryBookingCancellationResponse(BaseModel):
     message: str
     booking_id: int
+    
+    
+class DriverProfileResponse(BaseModel):
+    id: int
+    userId: int
+    name: str
+    email: str
+    licenseNumber: Optional[str] = ""
+    vehicleType: Optional[str] = ""
+    vehicleModel: Optional[str] = ""
+    vehicleYear: Optional[int] = 0
+    vehiclePlate: Optional[str] = ""
+    address: Optional[str] = ""
+    phoneNumber: Optional[str] = ""
+    isVerified: bool = False
+    createdAt: datetime
+    rating: float = 0.0
+    totalTrips: int = 0
+    
+    class Config:
+        from_attributes = True
+        
+class CustomerProfileResponse(BaseModel):
+    id: int
+    userId: int
+    name: str
+    email: str
+    phoneNumber: Optional[str] = ""
+    address: Optional[str] = ""
+    dateOfBirth: Optional[datetime] = None
+    preferences: Optional[Dict[str, Any]] = {}
+    isVerified: bool = False
+    createdAt: datetime
+    totalTrips: int = 0
+    activeItineraries: int = 0
+    completedItineraries: int = 0
+    
+    class Config:
+        from_attributes = True
+        
+
+class AdminProfileResponse(BaseModel):
+    id: int
+    userId: int
+    name: str
+    email: str
+    phoneNumber: Optional[str] = ""
+    position: Optional[str] = "Administrator"
+    department: Optional[str] = "Operations"
+    permissions: Optional[List[str]] = []
+    isActive: bool = True
+    createdAt: datetime
+    lastLogin: Optional[datetime] = None
+    
+    # Statistics
+    totalCustomers: int = 0
+    totalDrivers: int = 0
+    totalItineraries: int = 0
+    totalHotels: int = 0
+    
+    class Config:
+        from_attributes = True
