@@ -106,7 +106,7 @@ def get_occupancy_rate(db: Session = Depends(get_db)):
     }
 
 @router.get("/revenue", response_model=RevenueResponse)
-def get_revenue(user_id: int = 1, db: Session = Depends(get_db)):
+def get_revenue(user_id: int = 1, db: Session = Depends(get_db), current_user: User = Depends(is_hotel)):
     """Calculate total revenue for the last 30 days and upcoming 30 days"""
 
     today = datetime.utcnow()
@@ -114,7 +114,7 @@ def get_revenue(user_id: int = 1, db: Session = Depends(get_db)):
     last_30_days = today - timedelta(days=30)
     
     # First get the hotel for this user
-    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == current_user.id).first()
     
     if not hotel:
         return {
@@ -244,23 +244,38 @@ def get_room_availability_chart(days: int = 10, db: Session = Depends(get_db)):
     return chart_data
 
 @router.get("/room-type-distribution", response_model=RoomTypeDistributionResponse)
-def get_room_type_distribution(db: Session = Depends(get_db)):
+def get_room_type_distribution(db: Session = Depends(get_db), current_user: User = Depends(is_hotel)):
     """
     Get distribution of room types
-    Returns the count of each room type
+    Returns the count of each room type of that particular hotel
     """
-    # Get the count of each room type
+    # Get the hotel ID associated with this user
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == current_user.id).first()
+    if not hotel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Hotel not found for this user"
+        )
+        
+    # Get the distribution of room types
     room_distribution = db.query(
         Room.type,
-        func.count(Room.id).label("count")
-    ).group_by(Room.type).all()
+        func.sum(Room.totalNumber).label("count")
+    ).filter(
+        Room.hotelId == hotel.id
+    ).group_by(
+        Room.type
+    ).all()
+    # If no rooms found, return empty list
+    if not room_distribution:
+        return []
     
     # Convert to a list of dictionaries
     distribution_data = [{"room_type": room[0], "count": room[1]} for room in room_distribution]
     
     return distribution_data
 
-@router.get("/recent-bookings", response_model=RecentBookingsResponse)
+@router.get("/recent-bookings")
 def get_recent_bookings(db: Session = Depends(get_db)):
     """
     Get recent bookings
@@ -269,6 +284,19 @@ def get_recent_bookings(db: Session = Depends(get_db)):
     # Get the last 5 bookings
     recent_bookings = db.query(RoomBooking).order_by(RoomBooking.createdAt.desc()).limit(5).all()
     
+    # Get userId from the customerId of the booking
+    for booking in recent_bookings:
+        customer = db.query(models.Customer).filter(models.Customer.id == booking.customerId).first()
+        if customer:
+            user = db.query(User).filter(User.id == customer.userId).first()
+            booking.userId = user.id if user else None
+            booking.username = user.name if user else None
+            booking.userEmail = user.email if user else None
+            # get the room type from the roomId
+            room = db.query(Room).filter(Room.id == booking.roomId).first()
+            booking.roomType = room.type if room else None
+        else:
+            booking.userId = None
     return recent_bookings
 
 # API for adding the new Room-Type
@@ -296,15 +324,19 @@ def create_room(db: Session, room_data: schemas.RoomCreate):
 
 
 @router.post("/add-room", response_model=schemas.RoomResponse, status_code=200)
-def create_hotel_room(room_data: schemas.RoomCreate, db: Session = Depends(get_db)):
+def create_hotel_room(room_data: schemas.RoomCreate, db: Session = Depends(get_db), current_user: User = Depends(is_hotel)):
     """Create a new room type for a hotel"""
+    # get the hotelId from the userId
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == current_user.id).first()
     # Check if room type already exists for this hotel
-    existing_room = check_room_type_exists(db, room_data.hotelId, room_data.type)
+    existing_room = check_room_type_exists(db, hotel.id, room_data.type)
     if existing_room:
         raise HTTPException(
             status_code=403, 
             detail=f"Room of type {room_data.type} already exists for this hotel"
         )
+        
+    room_data.hotelId = hotel.id  # Set the hotelId in the room data
     
     # Create new room
     return create_room(db, room_data)
@@ -330,13 +362,13 @@ def delete_room(room_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/room-overview", response_model=List[schemas.RoomListResponse])
-def get_room_overview(user_id: int = 1, db: Session = Depends(get_db)):
+def get_room_overview(user_id: int = 1, db: Session = Depends(get_db), current_user: User = Depends(is_hotel)):
     """
     Get all rooms for a hotel associated with a user ID
     Returns rooms with arrays for booking, availability, and pricing data
     """
     # Step 1: Get the hotel ID associated with this user
-    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == current_user.id).first()
     
     if not hotel:
         # If no hotel found for this user, return empty list
@@ -345,8 +377,10 @@ def get_room_overview(user_id: int = 1, db: Session = Depends(get_db)):
     # Step 2: Get all rooms for the hotel
     rooms = db.query(models.Room).filter(models.Room.hotelId == hotel.id).all()
     
+    print("here", rooms)
     if not rooms:
         return []
+    print("exit")
 
     # count the number of rooms booked for each room type for each day till next 60 days
     today = datetime.utcnow().date()
@@ -401,18 +435,11 @@ def update_room_count(
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
     
+    # if room_update.totalNumber is less than current totalNumber, raise error
+    if room_update.totalNumber < room.totalNumber:
+        raise HTTPException(status_code=400, detail="Cannot reduce total number of rooms below current count")
     # Update the room count
-    old_count = room.totalNumber
     room.totalNumber = room_update.totalNumber
-    
-    # Calculate difference for availability updates
-    difference = room_update.totalNumber - old_count
-    
-    # Update available numbers for future dates
-    for i in range(len(room.availableNumber)):
-        # Don't reduce availability below booked rooms
-        room.availableNumber[i] = max(room.bookedNumber[i], room.availableNumber[i] + difference)
-    
     db.commit()
     db.refresh(room)
     return room
@@ -420,13 +447,13 @@ def update_room_count(
 
 
 @router.get("/hotel-bookings", response_model=List[schemas.BookingResponse])
-def get_hotel_bookings(user_id: int = 1, db: Session = Depends(get_db)):
+def get_hotel_bookings(user_id: int = 1, db: Session = Depends(get_db), current_user: User = Depends(is_hotel)):
     """
     Get all bookings for a hotel associated with a user ID
     Returns bookings with customer and room information
     """
     # Step 1: Get the hotel ID associated with this user
-    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == current_user.id).first()
     
     if not hotel:
         # If no hotel found for this user, return empty list
@@ -458,10 +485,10 @@ def get_hotel_bookings(user_id: int = 1, db: Session = Depends(get_db)):
         # Determine booking status based on dates
         if booking.startDate.date() > today:
             status = "pending"
-        elif booking.endDate.date() < today:
+        elif booking.endDate.date() <= today:
             status = "completed"
         else:
-            status = "confirmed"
+            status = "ongoing"
         
         # Format the booking
         formatted_booking = {
@@ -482,13 +509,13 @@ def get_hotel_bookings(user_id: int = 1, db: Session = Depends(get_db)):
 
 
 @router.get("/hotel-reviews", response_model=List[schemas.ReviewResponse])
-def get_hotel_reviews(user_id: int = 1, db: Session = Depends(get_db)):
+def get_hotel_reviews(user_id: int = 1, db: Session = Depends(get_db), current_user: User = Depends(is_hotel)):
     """
     Get all reviews for a hotel associated with a user ID
     Returns reviews with customer information
     """
     # Step 1: Get the hotel ID associated with this user
-    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == current_user.id).first()
     
     if not hotel:
         # If no hotel found for this user, return empty list
@@ -549,13 +576,13 @@ def get_hotel_reviews(user_id: int = 1, db: Session = Depends(get_db)):
     
     return formatted_reviews
 
-@router.get("/profile/{user_id}", response_model=schemas.HotelProfileResponse)
-def get_hotel_profile(user_id: int, db: Session = Depends(get_db)):
+@router.get("/profile/{user_id}")
+def get_hotel_profile(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(is_hotel)):
     """
     Get hotel profile information including rooms, ratings and stats
     """
     # First find the hotel with this user ID
-    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == current_user.id).first()
     if not hotel:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -563,7 +590,7 @@ def get_hotel_profile(user_id: int, db: Session = Depends(get_db)):
         )
     
     # Get the user information
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+    user = db.query(models.User).filter(models.User.id == current_user.id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -627,7 +654,7 @@ def get_hotel_profile(user_id: int, db: Session = Depends(get_db)):
     # Construct the response
     response = {
         "id": hotel.id,
-        "userId": user_id,
+        "userId": current_user.id,
         "name": user.name,
         "email": user.email,
         "phone": user.phone,
@@ -642,18 +669,17 @@ def get_hotel_profile(user_id: int, db: Session = Depends(get_db)):
             "totalBookings": total_bookings,
             "occupancyRate": occupancy_rate
         },
-        "amenities": hotel.amenities.split(',') if hotel.amenities else []
     }
     
     return response
 
 @router.put("/profile/{user_id}", response_model=schemas.HotelProfileResponse)
-def update_hotel_profile(user_id: int, profile_data: schemas.HotelProfileUpdate, db: Session = Depends(get_db)):
+def update_hotel_profile(user_id: int, profile_data: schemas.HotelProfileUpdate, db: Session = Depends(get_db), current_user: User = Depends(is_hotel)):
     """
     Update hotel profile information
     """
     # First find the hotel with this user ID
-    hotel = db.query(models.Hotel).filter(models.Hotel.userId == user_id).first()
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == current_user.id).first()
     if not hotel:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -661,7 +687,7 @@ def update_hotel_profile(user_id: int, profile_data: schemas.HotelProfileUpdate,
         )
     
     # Get the user information
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+    user = db.query(models.User).filter(models.User.id == current_user.id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -696,5 +722,5 @@ def update_hotel_profile(user_id: int, profile_data: schemas.HotelProfileUpdate,
     db.refresh(user)
     
     # Call the get function to return the updated profile with all associated data
-    return get_hotel_profile(user_id, db)
+    return get_hotel_profile(current_user.id, db)
 

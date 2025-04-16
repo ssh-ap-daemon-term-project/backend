@@ -95,7 +95,6 @@ class RoomBookingBase(BaseModel):
     userId: int
     startDate: datetime
     endDate: datetime
-    status: str
     numberOfPersons: int
     
     class Config:
