@@ -9,7 +9,7 @@ from agno.models.google import Gemini
 from agno.team.team import Team
 from agno.tools.googlesearch import GoogleSearchTools
 from agno.tools.duckduckgo import DuckDuckGoTools
-from app.Location_Extractor import LocationExtractor
+from app.location_extractor import LocationExtractor
 from app.Guardrails import GuardrailsAgent
 from app.SQL_queries import sql_queries
 from dotenv import load_dotenv
