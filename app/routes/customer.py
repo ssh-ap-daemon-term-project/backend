@@ -1014,6 +1014,8 @@ def get_customer_profile(current_user: models.User = Depends(is_auth), db: Sessi
     total_itineraries = db.query(models.Itinerary).filter(
         models.Itinerary.customerId == customer.id
     ).count()
+    # print all fields of current_user
+    print("current_user", current_user.__dict__)
     
     # Create response with basic information
     response = {
@@ -1021,6 +1023,8 @@ def get_customer_profile(current_user: models.User = Depends(is_auth), db: Sessi
         "userId": customer.userId,
         "name": current_user.name,
         "email": current_user.email,
+        "phoneNumber": current_user.phone,
+        "address": current_user.address,
         "createdAt": customer.createdAt,
         "isVerified": getattr(customer, "isVerified", False),
         "totalTrips": total_itineraries,
@@ -1029,7 +1033,7 @@ def get_customer_profile(current_user: models.User = Depends(is_auth), db: Sessi
     }
     
     # Safely add other fields if they exist in the model
-    for field in ["phoneNumber", "address", "dateOfBirth", "preferences"]:
+    for field in ["dateOfBirth", "preferences"]:
         if hasattr(customer, field):
             response[field] = getattr(customer, field)
         else:

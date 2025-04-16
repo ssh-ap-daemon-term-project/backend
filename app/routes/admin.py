@@ -427,8 +427,8 @@ def get_customer_ride_bookings(customer_id: int, db: Session = Depends(get_db)):
             "driverName": driver_name,
             "carModel": car_model,
             "pickupLocation": booking.pickupLocation,
-            "dropLocation": booking.dropLocation,
-            "pickupTime": booking.pickupTime.isoformat(),
+            "dropLocation": booking.dropoffLocation,
+            "pickupTime": booking.pickupDateTime.isoformat(),
             "status": booking.status,
             "price": float(booking.price)
         })
@@ -1185,9 +1185,8 @@ def get_driver_ride_bookings(driver_id: int, db: Session = Depends(get_db)):
             "customerId": booking.customerId,
             "customerName": customer_name,
             "pickupLocation": booking.pickupLocation,
-            "dropLocation": booking.dropLocation,
-            "pickupTime": booking.pickupTime.isoformat(),
-            "dropTime": booking.dropTime.isoformat(),
+            "dropLocation": booking.dropoffLocation,
+            "pickupTime": booking.pickupDateTime.isoformat(),
             "numberOfPersons": booking.numberOfPersons,
             "price": float(booking.price),
             "status": booking.status
@@ -1435,6 +1434,7 @@ def get_admin_profile(current_user: models.User = Depends(is_admin), db: Session
         "userId": admin.userId,
         "name": current_user.name,
         "email": current_user.email,
+        "phoneNumber": current_user.phone,
         "createdAt": admin.createdAt,
         "isActive": True,
         "totalCustomers": total_customers,

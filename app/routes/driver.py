@@ -180,7 +180,7 @@ def decline_ride(ride_id: int, driver_id: int = None, db: Session = Depends(get_
     return {"message": f"Ride {ride_id} declined successfully"}
 
 
-@router.get("/profile", response_model=schemas.DriverProfileResponse)
+@router.get("/profile")
 def get_driver_profile(current_user: models.User = Depends(is_auth), db: Session = Depends(get_db)):
     """Get the profile for the currently logged-in driver"""
     # Get the driver profile for the current user
@@ -195,6 +195,12 @@ def get_driver_profile(current_user: models.User = Depends(is_auth), db: Session
         "userId": driver.userId,
         "name": current_user.name,
         "email": current_user.email,
+        "phoneNumber": current_user.phone,
+        "address": current_user.address,
+        "carNumber": driver.carNumber,
+        "carModel": driver.carModel,
+        "carType": driver.carType,
+        "seatingCapacity": driver.seatingCapacity,
         "createdAt": driver.createdAt,
         "isVerified": getattr(driver, "isVerified", False),
         "rating": 4.8,  # Placeholder
@@ -203,7 +209,7 @@ def get_driver_profile(current_user: models.User = Depends(is_auth), db: Session
     
     # Safely add other fields if they exist in the model
     for field in ["licenseNumber", "vehicleType", "vehicleModel", "vehicleYear", 
-                 "vehiclePlate", "address", "phoneNumber"]:
+                 "vehiclePlate"]:
         if hasattr(driver, field):
             response[field] = getattr(driver, field)
         else:
