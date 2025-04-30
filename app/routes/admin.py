@@ -1084,8 +1084,19 @@ def update_driver(driver_id: int, driver_data: dict, db: Session = Depends(get_d
                     detail="Email already in use by another user"
                 )
             user.email = driver_data["email"]
-            # Also update username since it's derived from email
-            user.username = driver_data["email"]
+            
+        if "username" in driver_data:
+            # Check if username already exists for another user
+            existing_user = db.query(User).filter(
+                User.username == driver_data["username"], 
+                User.id != user.id
+            ).first()
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username already in use by another user"
+                )
+            user.username = driver_data["username"]
             
         if "phone" in driver_data:
             # Check if phone already exists for another user

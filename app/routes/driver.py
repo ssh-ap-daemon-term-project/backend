@@ -39,7 +39,7 @@ class CompletedTripResponse(schemas.BaseModel):
     class Config:
         from_attributes = True
 
-@router.get("/accepted-trips/{user_id}", response_model=List[schemas.RideBookingResponse])
+@router.get("/accepted-trips/{user_id}")
 def get_accepted_trips(user_id: int, db: Session = Depends(get_db)):
     """
     Get accepted trips for a driver identified by user_id.
@@ -67,16 +67,17 @@ def get_accepted_trips(user_id: int, db: Session = Depends(get_db)):
                 else "Unknown"
             )
 
-            response = schemas.RideBookingResponse(
-                id=ride.id,
-                pickupLocation=ride.pickupLocation,
-                dropoffLocation=ride.dropoffLocation,
-                pickupDateTime=ride.pickupDateTime,
-                numberOfPersons=ride.numberOfPersons,
-                price=ride.price,
-                status=ride.status,
-                driverName=driver.user.name if driver.user else "Unknown"
-            )
+            response = {
+                "id": ride.id,
+                "passengerName": passenger_name,
+                "pickupLocation": ride.pickupLocation,
+                "dropoffLocation": ride.dropoffLocation,
+                "pickupDateTime": ride.pickupDateTime,
+                "numberOfPersons": ride.numberOfPersons,
+                "price": ride.price,
+                "status": ride.status,
+                "driverName": driver.user.name if driver.user else "Unknown"
+            }
             response_list.append(response)
 
         return response_list

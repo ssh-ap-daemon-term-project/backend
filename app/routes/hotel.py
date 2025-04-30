@@ -21,7 +21,7 @@ from ..schemas import (
 
 # Create router with prefix and tags
 router = APIRouter(
-    # dependencies=[Depends(is_hotel)]
+    dependencies=[Depends(is_hotel)]
 )
 
 def get_db():
@@ -33,14 +33,20 @@ def get_db():
 
 # Now your routes will automatically have /hotel prefix
 @router.get("/hotelRoom", response_model=HotelRoomOverviewResponse)
-def get_hotelRoom(db: Session = Depends(get_db)):
+def get_hotelRoom(current_user: User = Depends(is_hotel), db: Session = Depends(get_db)):
     """Get hotel Room"""
     today = datetime.utcnow()
     upcoming_30_days = today + timedelta(days=30)
     last_30_days = today - timedelta(days=30)
 
-    # Get total rooms from the database
-    total_rooms = db.query(func.sum(Room.totalNumber)).scalar() or 0
+    # Get the hotel for this user
+    hotel = db.query(models.Hotel).filter(models.Hotel.userId == current_user.id).first()
+    if not hotel:
+        raise HTTPException(status_code=404, detail="Hotel not found")
+
+    # Get total rooms from the database for this hotel
+    total_rooms = db.query(func.sum(Room.totalNumber)).filter(Room.hotelId == hotel.id).scalar() or 0
+    # total_rooms = db.query(func.sum(Room.totalNumber)).scalar() or 0
 
     # Get booked rooms in the last 30 days
     booked_rooms_last_30_days = db.query(RoomBooking).filter(
@@ -406,9 +412,7 @@ def get_room_overview(user_id: int = 1, db: Session = Depends(get_db), current_u
         available_count = [room.totalNumber - booked_count[i] for i in range(60)]
     
     
-    # Step 3: Format response to match frontend expected structure
-    formatted_rooms = []
-    for room in rooms:
+        # Step 3: Format response to match frontend expected structure
         formatted_room = {
             "id": room.id,
             "total_no": room.totalNumber,
