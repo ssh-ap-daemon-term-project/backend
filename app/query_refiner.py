@@ -5,6 +5,14 @@ from agno.models.google import Gemini
 from agno.models.groq import Groq
 import re
 
+def _unwrap_metric(x):
+    """
+    Helper to turn either an int or a single‐element list into an int.
+    """
+    if isinstance(x, list) and len(x) > 0:
+        return x[0]
+    return x if isinstance(x, int) else None
+
 class SQLQueryPlannerAgent:
     def __init__(self):
         """
@@ -115,9 +123,9 @@ class SQLQueryPlannerAgent:
         response_content = response.content
         
         # Add token metrics tracking
-        input_tokens = response.metrics['input_tokens'][0]
-        output_tokens = response.metrics['output_tokens'][0]
-        total_tokens = response.metrics['total_tokens'][0]
+        input_tokens = _unwrap_metric(response.metrics.get('input_tokens'))
+        output_tokens = _unwrap_metric(response.metrics.get('output_tokens'))
+        total_tokens = _unwrap_metric(response.metrics.get('total_tokens'))
         print(f"Query planner metrics - Input tokens: {input_tokens}, Output tokens: {output_tokens}, Total: {total_tokens}")
         
         cleaned = self._clean_response(response_content)
