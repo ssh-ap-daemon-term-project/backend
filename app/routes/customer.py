@@ -423,11 +423,11 @@ def get_hotel(hotel_id: int, db: Session = Depends(get_db)):
             end_index = min((end_date - start_date).days, (booking.endDate - start_date).days - 1)
             for i in range(start_index, end_index + 1):
                 booked_rooms[i] += 1
-        print("booked_rooms", booked_rooms)
+        # print("booked_rooms", booked_rooms)
 
         # calculate the number of available rooms list
         available_rooms_list = [room.totalNumber - booked for booked in booked_rooms]
-        print("available_rooms_list", available_rooms_list)
+        # print("available_rooms_list", available_rooms_list)
         
         rooms_list.append({
             "id": room.id,
@@ -1015,7 +1015,7 @@ def get_customer_profile(current_user: models.User = Depends(is_auth), db: Sessi
         models.Itinerary.customerId == customer.id
     ).count()
     # print all fields of current_user
-    print("current_user", current_user.__dict__)
+    # print("current_user", current_user.__dict__)
     
     # Create response with basic information
     response = {

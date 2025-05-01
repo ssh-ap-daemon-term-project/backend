@@ -383,10 +383,8 @@ def get_room_overview(user_id: int = 1, db: Session = Depends(get_db), current_u
     # Step 2: Get all rooms for the hotel
     rooms = db.query(models.Room).filter(models.Room.hotelId == hotel.id).all()
     
-    print("here", rooms)
     if not rooms:
         return []
-    print("exit")
 
     # count the number of rooms booked for each room type for each day till next 60 days
     today = datetime.utcnow().date()

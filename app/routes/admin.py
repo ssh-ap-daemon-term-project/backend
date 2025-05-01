@@ -948,7 +948,7 @@ def get_driver_by_id(driver_id: int, db: Session = Depends(get_db)):
 def create_driver(driver_data: schemas.DriverCreate, db: Session = Depends(get_db)):
     """Create a new driver"""
     try:
-        print(f"Received driver data: {driver_data}")
+        # print(f"Received driver data: {driver_data}")
         
         # Check if email already exists
         existing_user = db.query(User).filter(User.email == driver_data.email).first()
@@ -998,9 +998,9 @@ def create_driver(driver_data: schemas.DriverCreate, db: Session = Depends(get_d
             )
             db.add(user)
             db.flush()
-            print(f"Created user with ID: {user.id}")
+            # print(f"Created user with ID: {user.id}")
         except Exception as e:
-            print(f"Error creating user: {e}")
+            # print(f"Error creating user: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Failed to create user: {str(e)}"
@@ -1019,9 +1019,9 @@ def create_driver(driver_data: schemas.DriverCreate, db: Session = Depends(get_d
             db.add(driver)
             db.commit()
             db.refresh(driver)
-            print(f"Created driver with ID: {driver.id}")
+            # print(f"Created driver with ID: {driver.id}")
         except Exception as e:
-            print(f"Error creating driver: {e}")
+            # print(f"Error creating driver: {e}")
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1044,11 +1044,11 @@ def create_driver(driver_data: schemas.DriverCreate, db: Session = Depends(get_d
         
     except HTTPException as e:
         db.rollback()
-        print(f"HTTP Exception: {e.detail}")
+        # print(f"HTTP Exception: {e.detail}")
         raise e
     except Exception as e:
         db.rollback()
-        print(f"Unexpected error: {e}")
+        # print(f"Unexpected error: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(

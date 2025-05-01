@@ -284,8 +284,8 @@ def get_itinerary(
         "rideBookings": ride_bookings  # TODO: Add ride booking
     }
     
-    print("+++++++++++++++++++++++++++++++++")
-    print(f"Ride-Bookings is {response_data["rideBookings"]}")
+    # print("+++++++++++++++++++++++++++++++++")
+    # print(f"Ride-Bookings is {response_data["rideBookings"]}")
 
     return response_data
 
