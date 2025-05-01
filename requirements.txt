@@ -15,3 +15,6 @@ psycopg
 google-genai
 transformers
 groq
+googlesearch-python
+pycountry
+duckduckgo-search
