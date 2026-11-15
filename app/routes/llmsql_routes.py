@@ -20,7 +20,7 @@ def generate_sql_query(request: SQLQueryRequest):
     Generate and execute SQL based on natural language prompt
     """
     try:
-        processor = SQLDatabaseQueryProcessor(db_url="postgresql://sshapdaemon:noPassword1@sshapdaemon.postgres.database.azure.com:5432/postgres")
+        processor = SQLDatabaseQueryProcessor()
         
         # Process the user's query
         result = processor.final_response(request.prompt)

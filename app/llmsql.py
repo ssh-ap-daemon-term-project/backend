@@ -2,6 +2,7 @@ from agno.agent import Agent
 from agno.tools.sql import SQLTools
 from agno.models.google import Gemini
 import psycopg2
+import os
 # Conditional import based on how the file is being used
 try:
     # Try package-style import first (for when used in FastAPI)
@@ -39,9 +40,9 @@ def _unwrap_metric(x):
 class SQLDatabaseQueryProcessor:
     """A class to process natural language queries to SQL and execute them against a database."""
     
-    def __init__(self, db_url: str = "postgresql://sshapdaemon:noPassword1@sshapdaemon.postgres.database.azure.com:5432/postgres"):
+    def __init__(self, db_url: Optional[str] = None):
         """Initialize with database connection and LLM agents."""
-        self.db_url = db_url
+        self.db_url = db_url or os.environ["DATABASE_URL"]
         self.sql_query_planner = SQLQueryPlannerAgent()
         self.agent = Agent(
             model=Gemini("gemini-2.0-flash-exp"),  

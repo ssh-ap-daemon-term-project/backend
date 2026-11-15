@@ -1,21 +1,15 @@
 import psycopg2
-from psycopg2 import sql, OperationalError
+from psycopg2 import OperationalError
+import os
+from dotenv import load_dotenv
 
-# Replace with your actual credentials
-DB_HOST = "sshapdaemon.postgres.database.azure.com"
-DB_PORT = 5432
-DB_NAME = "postgres"
-DB_USER = "sshapdaemon"
-DB_PASSWORD = "noPassword1"
+load_dotenv()
+
+DATABASE_URL = os.environ["DATABASE_URL"]
+
 def connect_db():
     try:
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD
-        )
+        conn = psycopg2.connect(DATABASE_URL)
         print("✅ Connected to the database.")
         return conn
     except OperationalError as e:

@@ -5,13 +5,14 @@ import psycopg2
 from query_refiner import SQLQueryPlannerAgent
 from psycopg2.extras import RealDictCursor
 import re
+import os
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-db_url = "postgresql://postgres:sagnibha123#@localhost:5432/postgres"
+db_url = os.environ["DATABASE_URL"]
 
 sql_query_planner = SQLQueryPlannerAgent()
 
