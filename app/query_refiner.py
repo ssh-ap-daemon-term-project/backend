@@ -13,6 +13,11 @@ def _unwrap_metric(x):
         return x[0]
     return x if isinstance(x, int) else None
 
+def _get_metric(metrics, name):
+    if isinstance(metrics, dict):
+        return metrics.get(name)
+    return getattr(metrics, name, None)
+
 class SQLQueryPlannerAgent:
     def __init__(self):
         """
@@ -122,9 +127,9 @@ class SQLQueryPlannerAgent:
         response_content = response.content
         
         # Add token metrics tracking
-        input_tokens = _unwrap_metric(response.metrics.get('input_tokens'))
-        output_tokens = _unwrap_metric(response.metrics.get('output_tokens'))
-        total_tokens = _unwrap_metric(response.metrics.get('total_tokens'))
+        input_tokens = _unwrap_metric(_get_metric(response.metrics, 'input_tokens'))
+        output_tokens = _unwrap_metric(_get_metric(response.metrics, 'output_tokens'))
+        total_tokens = _unwrap_metric(_get_metric(response.metrics, 'total_tokens'))
         print(f"Query planner metrics - Input tokens: {input_tokens}, Output tokens: {output_tokens}, Total: {total_tokens}")
         
         cleaned = self._clean_response(response_content)

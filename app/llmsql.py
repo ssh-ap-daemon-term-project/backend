@@ -36,6 +36,11 @@ def _unwrap_metric(x):
         return x[0]
     return x if isinstance(x, int) else None
 
+def _get_metric(metrics, name):
+    if isinstance(metrics, dict):
+        return metrics.get(name)
+    return getattr(metrics, name, None)
+
 
 class SQLDatabaseQueryProcessor:
     """A class to process natural language queries to SQL and execute them against a database."""
@@ -250,9 +255,9 @@ class SQLDatabaseQueryProcessor:
             res = self.agent.run(elem)
             # Add token metrics tracking
             # Safely extract metrics whether int or [int]
-            input_tokens = _unwrap_metric(res.metrics.get('input_tokens'))
-            output_tokens = _unwrap_metric(res.metrics.get('output_tokens'))
-            total_tokens = _unwrap_metric(res.metrics.get('total_tokens'))
+            input_tokens = _unwrap_metric(_get_metric(res.metrics, 'input_tokens'))
+            output_tokens = _unwrap_metric(_get_metric(res.metrics, 'output_tokens'))
+            total_tokens = _unwrap_metric(_get_metric(res.metrics, 'total_tokens'))
             print(f"Agent metrics - Input tokens: {input_tokens}, Output tokens: {output_tokens}, Total: {total_tokens}")
             
             sql_query_list.append(res.content)
@@ -332,9 +337,9 @@ class SQLDatabaseQueryProcessor:
         
         refactored_response = refactor.run(prompt_template)
         # Add token metrics tracking
-        input_tokens = _unwrap_metric(refactored_response.metrics.get('input_tokens'))
-        output_tokens = _unwrap_metric(refactored_response.metrics.get('output_tokens'))
-        total_tokens = _unwrap_metric(refactored_response.metrics.get('total_tokens'))
+        input_tokens = _unwrap_metric(_get_metric(refactored_response.metrics, 'input_tokens'))
+        output_tokens = _unwrap_metric(_get_metric(refactored_response.metrics, 'output_tokens'))
+        total_tokens = _unwrap_metric(_get_metric(refactored_response.metrics, 'total_tokens'))
 
         print(f"Refactor agent metrics - Input tokens: {input_tokens}, Output tokens: {output_tokens}, Total: {total_tokens}")
         

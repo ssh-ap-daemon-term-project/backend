@@ -11,6 +11,11 @@ def _unwrap_metric(x):
         return x[0]
     return x if isinstance(x, int) else None
 
+def _get_metric(metrics, name):
+    if isinstance(metrics, dict):
+        return metrics.get(name)
+    return getattr(metrics, name, None)
+
 class LocationExtractor:
     def __init__(self, model_id="gemini-3.8-flash"):
         """
@@ -43,9 +48,9 @@ class LocationExtractor:
         try:
             response = self.agent.run(prompt)
             # Add token metrics tracking
-            input_tokens = _unwrap_metric(response.metrics.get('input_tokens'))
-            output_tokens = _unwrap_metric(response.metrics.get('output_tokens'))
-            total_tokens = _unwrap_metric(response.metrics.get('total_tokens'))
+            input_tokens = _unwrap_metric(_get_metric(response.metrics, 'input_tokens'))
+            output_tokens = _unwrap_metric(_get_metric(response.metrics, 'output_tokens'))
+            total_tokens = _unwrap_metric(_get_metric(response.metrics, 'total_tokens'))
             print(f"Location extractor metrics - Input tokens: {input_tokens}, Output tokens: {output_tokens}, Total: {total_tokens}")
             
             locations = ast.literal_eval(response.content.strip())
