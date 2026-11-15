@@ -18,3 +18,4 @@ groq
 googlesearch-python
 pycountry
 duckduckgo-search
+ddgs
