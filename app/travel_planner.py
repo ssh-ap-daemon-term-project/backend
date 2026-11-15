@@ -68,7 +68,6 @@ class TravelAgent:
             role=role,
             model=Gemini(id=model_id, search=search),
             tools=tools,
-            add_name_to_instructions=True,
             instructions=self.instructions,
         )
 
