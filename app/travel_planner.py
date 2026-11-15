@@ -52,7 +52,7 @@ class TravelAgent:
     """Base class for all travel-related agents"""
     
     def __init__(self, name: str, role: str, instructions: str, 
-                 model_id: str = "gemini-2.0-flash-exp", 
+                 model_id: str = "gemini-2.5-flash", 
                  search: bool = False,
                  tools: Optional[List] = None):
         """Initialize a travel agent with specific role and instructions"""
@@ -161,7 +161,7 @@ class TravelPlanningTeam:
         self.team = Team(
             name="Travel Planning Team",
             mode="collaborate",
-            model=Gemini(id="gemini-1.5-flash"),
+            model=Gemini(id="gemini-2.5-flash"),
             members=[
                 self.destination_researcher.agent,
                 self.accommodation_expert.agent,

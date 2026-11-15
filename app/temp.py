@@ -18,7 +18,7 @@ sql_query_planner = SQLQueryPlannerAgent()
 
 # Create an agent with Gemini model and SQL tools
 agent = Agent(
-    model=Gemini("gemini-2.0-flash-exp"),  # Using Gemini 2.0 Flash
+    model=Gemini("gemini-2.5-flash"),
     tools=[SQLTools(db_url=db_url)],
     description="""
         You are a database-driven assistant with access to a PostgreSQL database.
