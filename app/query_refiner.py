@@ -21,9 +21,8 @@ class SQLQueryPlannerAgent:
         load_dotenv()
 
         self.agent = Agent(
-            model=Gemini(id="gemini-2.5-flash"),
+            model=Gemini(id="gemini-3.8-flash"),
             description=self._build_description(),
-            show_tool_calls=True,
             markdown=True
         )
 

@@ -9,7 +9,7 @@ load_dotenv()
 class GuardrailsAgent:
     """Agent responsible for enforcing guardrails on user queries"""
     
-    def __init__(self, model_id: str = "gemini-2.5-flash"):
+    def __init__(self, model_id: str = "gemini-3.8-flash"):
         """
         Initialize the guardrails agent with specific instructions
         

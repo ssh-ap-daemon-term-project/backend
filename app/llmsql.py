@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 refactor = Agent(
-    model=Gemini("gemini-2.5-flash"),
+    model=Gemini("gemini-3.8-flash"),
     instructions="""
     You are a SQL query refactoring agent.
     Your task is to give human readable responses from SQL queries.
@@ -45,7 +45,7 @@ class SQLDatabaseQueryProcessor:
         self.db_url = db_url or os.environ["DATABASE_URL"]
         self.sql_query_planner = SQLQueryPlannerAgent()
         self.agent = Agent(
-            model=Gemini("gemini-2.5-flash"),  
+            model=Gemini("gemini-3.8-flash"),  
             tools=[SQLTools(db_url=self.db_url)],
             description="""
     You are a database-driven assistant with access to a PostgreSQL database.

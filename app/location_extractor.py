@@ -12,7 +12,7 @@ def _unwrap_metric(x):
     return x if isinstance(x, int) else None
 
 class LocationExtractor:
-    def __init__(self, model_id="gemini-2.5-flash"):
+    def __init__(self, model_id="gemini-3.8-flash"):
         """
         Initializes the Agent for location extraction.
         """
