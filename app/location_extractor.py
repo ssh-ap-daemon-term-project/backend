@@ -18,7 +18,7 @@ def _get_metric(metrics, name):
     return getattr(metrics, name, None)
 
 class LocationExtractor:
-    def __init__(self, model_id="gemini-3.8-flash"):
+    def __init__(self, model_id="gemini-3.5-flash-lite"):
         """
         Initializes the Agent for location extraction.
         """
