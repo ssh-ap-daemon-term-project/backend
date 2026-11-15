@@ -7,7 +7,7 @@ from typing import List, Optional
 from agno.agent import Agent
 from agno.models.google import Gemini
 from agno.team.team import Team
-from agno.tools.googlesearch import GoogleSearchTools
+from agno.tools.websearch import WebSearchTools
 from agno.tools.duckduckgo import DuckDuckGoTools
 from app.location_extractor import LocationExtractor
 from app.Guardrails import GuardrailsAgent
@@ -80,7 +80,7 @@ class DestinationResearcher(TravelAgent):
         super().__init__(
             name="Destination Researcher",
             role="Research travel destinations and attractions",
-            tools=[GoogleSearchTools(), DuckDuckGoTools()],
+            tools=[WebSearchTools(backend="google"), DuckDuckGoTools()],
             instructions="""
                 You are a destination researcher specializing in travel information.
                 You will research potential travel destinations based on the traveler's preferences.
@@ -98,7 +98,7 @@ class AccommodationExpert(TravelAgent):
         super().__init__(
             name="Accommodation Expert",
             role="Find and evaluate accommodation options",
-            tools=[GoogleSearchTools(), DuckDuckGoTools()],
+            tools=[WebSearchTools(backend="google"), DuckDuckGoTools()],
             instructions="""
                 You are an accommodation expert.
                 You will research and recommend accommodation options based on the traveler's preferences and budget.
@@ -116,7 +116,7 @@ class TransportationPlanner(TravelAgent):
         super().__init__(
             name="Transportation Planner",
             role="Plan transportation between and within destinations",
-            tools=[GoogleSearchTools()],
+            tools=[WebSearchTools(backend="google")],
             instructions="""
                 You are a transportation planning specialist.
                 You will research and recommend transportation options between destinations and for local travel.
