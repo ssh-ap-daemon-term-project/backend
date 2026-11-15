@@ -175,7 +175,6 @@ class TravelPlanningTeam:
                 "Synthesize the team's input into a cohesive travel itinerary.",
                 "You have to stop the discussion when you think the team has developed a complete travel plan."
             ],
-            success_criteria="A comprehensive travel plan has been created that meets the traveler's preferences and constraints.",
             share_member_interactions=True,
             markdown=False,
         )
